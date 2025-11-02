@@ -91,6 +91,8 @@ export default function Home() {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [saveAnimation, setSaveAnimation] = useState<{ active: boolean; folderId: string | null; startX: number; startY: number; endX: number; endY: number } | null>(null);
   const [showDownloadDropdown, setShowDownloadDropdown] = useState<boolean>(false);
+  const [openFolderMenu, setOpenFolderMenu] = useState<string | null>(null);
+  const [showDeleteFolderConfirm, setShowDeleteFolderConfirm] = useState<string | null>(null);
 
   const showCustomAlert = (message: string) => {
     setAlertMessage(message);
@@ -322,15 +324,18 @@ export default function Home() {
       if (showDownloadDropdown && !target.closest('[data-download-dropdown]')) {
         setShowDownloadDropdown(false);
       }
+      if (openFolderMenu && !target.closest('[data-folder-menu]')) {
+        setOpenFolderMenu(null);
+      }
     };
 
-    if (showDownloadDropdown) {
+    if (showDownloadDropdown || openFolderMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
-  }, [showDownloadDropdown]);
+  }, [showDownloadDropdown, openFolderMenu]);
 
   const colors = [
     { name: 'blue', color: 'bg-blue-500', label: 'X' },
@@ -1260,6 +1265,22 @@ export default function Home() {
     setEditingPlayId(null);
   };
 
+  const deleteFolder = (folderId: string) => {
+    // Remove folder from folders list
+    const updatedFolders = folders.filter(f => f.id !== folderId);
+    setFolders(updatedFolders);
+    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
+    
+    // Unassign plays from deleted folder
+    const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+    const updatedPlays = savedPlays.map((play: { folderId?: string }) => 
+      play.folderId === folderId ? { ...play, folderId: undefined } : play
+    );
+    localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
+    
+    setShowDeleteFolderConfirm(null);
+  };
+
   const downloadPlayAsJPG = () => {
     // Find the field container
     const fieldContainer = document.querySelector('.bg-white.relative.overflow-hidden');
@@ -1987,8 +2008,8 @@ export default function Home() {
             </button>
           </div>
             </div>
-        </div>
-
+          </div>
+          
           {/* Right Side: Nav Links */}
           <div className="flex items-center space-x-8">
             <Link 
@@ -2013,7 +2034,7 @@ export default function Home() {
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-gray-700">Folders</h2>
-            <button
+              <button
               onClick={() => {
                 const name = prompt('Enter folder name:');
                 if (name && name.trim()) {
@@ -2032,9 +2053,9 @@ export default function Home() {
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-          </div>
+                  </svg>
+              </button>
+            </div>
           <div className="space-y-2">
             {/* All Plays Button */}
             <button
@@ -2054,7 +2075,8 @@ export default function Home() {
               <div
                 key={folder.id}
                 data-folder-id={folder.id}
-                className="w-full flex items-center group"
+                className="w-full flex items-center group relative"
+                data-folder-menu
               >
             <button
                   onClick={() => {
@@ -2067,32 +2089,68 @@ export default function Home() {
               </svg>
                   <span className="text-base text-gray-700 group-hover:text-gray-900">{folder.name}</span>
             </button>
+                <div className="relative mr-2">
             <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    // Get all plays in this folder
-                    const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-                    const folderPlays = savedPlays.filter((play: { folderId?: string }) => play.folderId === folder.id);
-                    
-                    try {
-                      const { createShareableLink } = await import('./firebase');
-                      const shareLink = await createShareableLink(folder.id, folder.name, folderPlays);
-                      
-                      // Copy to clipboard
-                      navigator.clipboard.writeText(shareLink);
-                      alert(`Share link copied to clipboard!\n\n${shareLink}`);
-                    } catch (error) {
-                      console.error('Error creating share link:', error);
-                      alert('Failed to create share link. Please check Firebase configuration.');
-                    }
-                  }}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700 mr-2 opacity-0 group-hover:opacity-100"
-                  title="Share folder"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenFolderMenu(openFolderMenu === folder.id ? null : folder.id);
+                    }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100"
+                    title="Folder options"
+                    data-folder-menu
+                  >
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
               </svg>
             </button>
+                  {openFolderMenu === folder.id && (
+                    <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[160px] py-1" data-folder-menu>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          // Get all plays in this folder
+                          const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+                          const folderPlays = savedPlays.filter((play: { folderId?: string }) => play.folderId === folder.id);
+                          
+                          try {
+                            const { createShareableLink } = await import('./firebase');
+                            const shareLink = await createShareableLink(folder.id, folder.name, folderPlays);
+                            
+                            // Copy to clipboard
+                            navigator.clipboard.writeText(shareLink);
+                            alert(`Share link copied to clipboard!\n\n${shareLink}`);
+                            setOpenFolderMenu(null);
+                          } catch (error) {
+                            console.error('Error creating share link:', error);
+                            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                            alert(`Failed to create share link.\n\nError: ${errorMessage}\n\nCheck:\n1. Firestore security rules are set\n2. Browser console for details`);
+                          }
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        data-folder-menu
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+                        Copy Link
+            </button>
+            <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowDeleteFolderConfirm(folder.id);
+                          setOpenFolderMenu(null);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                        data-folder-menu
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+                        Delete Folder
+            </button>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -3004,6 +3062,45 @@ export default function Home() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Folder Confirmation Modal */}
+      {showDeleteFolderConfirm && (
+        <div className="fixed inset-0 flex items-center justify-center z-50">
+          <div 
+            className="absolute inset-0 backdrop-blur-sm"
+            onClick={() => setShowDeleteFolderConfirm(null)}
+          ></div>
+          <div 
+            className="relative bg-white rounded-lg shadow-xl p-6 w-96 max-w-md mx-4 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">
+              Delete Folder
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to delete this folder? All plays in this folder will be moved to "All Plays".
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteFolderConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (showDeleteFolderConfirm) {
+                    deleteFolder(showDeleteFolderConfirm);
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

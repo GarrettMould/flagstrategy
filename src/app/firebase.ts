@@ -59,26 +59,84 @@ export interface SharedFolder {
   expiresAt?: string;
 }
 
+// Helper function to convert arrays to objects (Firestore doesn't support nested arrays)
+function convertArraysToObjects(data: any): any {
+  if (Array.isArray(data)) {
+    // Convert array to object with numeric keys
+    const obj: { [key: string]: any } = {};
+    data.forEach((item, index) => {
+      obj[index.toString()] = convertArraysToObjects(item);
+    });
+    return obj;
+  } else if (data && typeof data === 'object') {
+    // Recursively process object properties
+    const result: { [key: string]: any } = {};
+    for (const key in data) {
+      if (data.hasOwnProperty(key)) {
+        result[key] = convertArraysToObjects(data[key]);
+      }
+    }
+    return result;
+  }
+  return data;
+}
+
+// Helper function to convert objects back to arrays
+function convertObjectsToArrays(data: any): any {
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    // Check if this looks like an array converted to object (has numeric keys 0, 1, 2, etc.)
+    const keys = Object.keys(data);
+    const isArrayLike = keys.length > 0 && keys.every((k, i) => k === i.toString());
+    
+    if (isArrayLike) {
+      // Convert back to array
+      return keys.map(k => convertObjectsToArrays(data[k]));
+    } else {
+      // Recursively process object properties
+      const result: { [key: string]: any } = {};
+      for (const key in data) {
+        if (data.hasOwnProperty(key)) {
+          result[key] = convertObjectsToArrays(data[key]);
+        }
+      }
+      return result;
+    }
+  }
+  return data;
+}
+
 // Create a shareable link for a folder
 export async function createShareableLink(folderId: string, folderName: string, plays: SavedPlay[]): Promise<string> {
-  const shareId = `share_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-  
-  const sharedFolder: SharedFolder = {
-    shareId,
-    folderId,
-    folderName,
-    plays,
-    createdAt: new Date().toISOString()
-  };
-  
-  // Store in Firestore
-  await setDoc(doc(db, 'sharedFolders', shareId), sharedFolder);
-  
-  // Use custom domain if provided, otherwise use current origin
-  const baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || window.location.origin;
-  
-  // Return the shareable URL
-  return `${baseUrl}/shared/${shareId}`;
+  try {
+    const shareId = `share_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    
+    // Convert nested arrays to objects for Firestore compatibility
+    const playsForFirestore = convertArraysToObjects(plays);
+    
+    const sharedFolder = {
+      shareId,
+      folderId,
+      folderName,
+      plays: playsForFirestore,
+      createdAt: new Date().toISOString()
+    };
+    
+    // Store in Firestore
+    await setDoc(doc(db, 'sharedFolders', shareId), sharedFolder);
+    
+    // Use custom domain if provided, otherwise use current origin
+    const baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || window.location.origin;
+    
+    // Return the shareable URL
+    return `${baseUrl}/shared/${shareId}`;
+  } catch (error) {
+    console.error('Error creating shareable link:', error);
+    // Re-throw with more context
+    if (error instanceof Error) {
+      throw new Error(`Firebase error: ${error.message}. Please check Firestore security rules.`);
+    }
+    throw new Error('Failed to create share link. Check console for details.');
+  }
 }
 
 // Get shared folder data by share ID
@@ -88,7 +146,13 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      return docSnap.data() as SharedFolder;
+      const data = docSnap.data();
+      // Convert objects back to arrays
+      const convertedData = {
+        ...data,
+        plays: convertObjectsToArrays(data.plays)
+      };
+      return convertedData as SharedFolder;
     }
     return null;
   } catch (error) {
