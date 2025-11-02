@@ -60,9 +60,11 @@ export interface SharedFolder {
 }
 
 // Helper function to convert arrays to objects (Firestore doesn't support nested arrays)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function convertArraysToObjects(data: any): any {
   if (Array.isArray(data)) {
     // Convert array to object with numeric keys
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const obj: { [key: string]: any } = {};
     data.forEach((item, index) => {
       obj[index.toString()] = convertArraysToObjects(item);
@@ -70,6 +72,7 @@ function convertArraysToObjects(data: any): any {
     return obj;
   } else if (data && typeof data === 'object') {
     // Recursively process object properties
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: { [key: string]: any } = {};
     for (const key in data) {
       if (data.hasOwnProperty(key)) {
@@ -82,6 +85,7 @@ function convertArraysToObjects(data: any): any {
 }
 
 // Helper function to convert objects back to arrays
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function convertObjectsToArrays(data: any): any {
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     // Check if this looks like an array converted to object (has numeric keys 0, 1, 2, etc.)
@@ -93,6 +97,7 @@ function convertObjectsToArrays(data: any): any {
       return keys.map(k => convertObjectsToArrays(data[k]));
     } else {
       // Recursively process object properties
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result: { [key: string]: any } = {};
       for (const key in data) {
         if (data.hasOwnProperty(key)) {

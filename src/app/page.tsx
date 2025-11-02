@@ -3081,7 +3081,7 @@ export default function Home() {
               Delete Folder
             </h2>
             <p className="text-sm text-gray-600 mb-6">
-              Are you sure you want to delete this folder? All plays in this folder will be moved to "All Plays".
+              Are you sure you want to delete this folder? All plays in this folder will be moved to &quot;All Plays&quot;.
             </p>
             <div className="flex gap-3 justify-end">
               <button
