@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { getSharedFolder, SharedFolder } from '../../firebase';
 
 interface Player {
@@ -20,13 +21,30 @@ interface Route {
   showArrow?: boolean;
 }
 
+interface TextBox {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  color: string;
+}
+
+interface Circle {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+}
+
 interface SavedPlay {
   id: string;
   name: string;
   players: Player[];
   routes: Route[];
-  textBoxes?: any[];
-  circles?: any[];
+  textBoxes?: TextBox[];
+  circles?: Circle[];
 }
 
 const colors = [
@@ -122,7 +140,7 @@ const renderPlayPreview = (play: SavedPlay) => {
         }));
         
         let startIndex = scaledPoints.length - 2;
-        let lastPoint = scaledPoints[scaledPoints.length - 1];
+        const lastPoint = scaledPoints[scaledPoints.length - 1];
         let secondLastPoint = scaledPoints[startIndex];
         
         while (startIndex > 0) {
@@ -338,7 +356,7 @@ export default function SharedFolderPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="text-lg text-red-600 mb-4">{error}</div>
-          <a href="/" className="text-blue-600 hover:text-blue-800 underline">Go to Play Builder</a>
+          <Link href="/" className="text-blue-600 hover:text-blue-800 underline">Go to Play Builder</Link>
         </div>
       </div>
     );
@@ -357,12 +375,12 @@ export default function SharedFolderPage() {
             <h1 className="text-2xl font-semibold text-gray-900">{sharedFolder.folderName}</h1>
             <p className="text-sm text-gray-500 mt-1">Shared folder with {sharedFolder.plays.length} play{sharedFolder.plays.length !== 1 ? 's' : ''}</p>
           </div>
-          <a 
+          <Link 
             href="/"
             className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
           >
             Create Your Own Play
-          </a>
+          </Link>
         </div>
       </div>
 

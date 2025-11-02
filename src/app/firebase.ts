@@ -1,6 +1,39 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 
+interface SavedPlay {
+  id: string;
+  name: string;
+  players: Array<{
+    id: string;
+    x: number;
+    y: number;
+    color: string;
+    type: 'offense' | 'defense';
+  }>;
+  routes: Array<{
+    id: string;
+    points: Array<{ x: number; y: number }>;
+    style: 'solid' | 'dashed';
+    lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
+  }>;
+  textBoxes?: Array<{
+    id: string;
+    x: number;
+    y: number;
+    text: string;
+    fontSize: number;
+    color: string;
+  }>;
+  circles?: Array<{
+    id: string;
+    x: number;
+    y: number;
+    radius: number;
+    color: string;
+  }>;
+}
+
 // Firebase configuration
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyB2H02PIXKOLcFtnMK7vssKiEATOPOIHtg",
@@ -21,13 +54,13 @@ export interface SharedFolder {
   shareId: string;
   folderId: string;
   folderName: string;
-  plays: any[];
+  plays: SavedPlay[];
   createdAt: string;
   expiresAt?: string;
 }
 
 // Create a shareable link for a folder
-export async function createShareableLink(folderId: string, folderName: string, plays: any[]): Promise<string> {
+export async function createShareableLink(folderId: string, folderName: string, plays: SavedPlay[]): Promise<string> {
   const shareId = `share_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   
   const sharedFolder: SharedFolder = {

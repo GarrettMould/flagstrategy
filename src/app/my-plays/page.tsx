@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 interface Player {
   id: string;
@@ -24,6 +25,23 @@ interface Folder {
   createdAt: string;
 }
 
+interface TextBox {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  color: string;
+}
+
+interface Circle {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+}
+
 interface SavedPlay {
   id: string;
   name: string;
@@ -31,8 +49,8 @@ interface SavedPlay {
   folderId?: string;
   players: Player[];
   routes: Route[];
-  textBoxes?: any[];
-  circles?: any[];
+  textBoxes?: TextBox[];
+  circles?: Circle[];
   createdAt: string;
 }
 
@@ -160,19 +178,20 @@ export default function MyPlays() {
     setPlayToDelete(null);
   };
 
-  const deleteFolder = (folderId: string) => {
-    // Remove folder and unassign plays from it
-    const updatedFolders = folders.filter(f => f.id !== folderId);
-    setFolders(updatedFolders);
-    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
-    
-    // Unassign plays from deleted folder
-    const updatedPlays = savedPlays.map(play => 
-      play.folderId === folderId ? { ...play, folderId: undefined } : play
-    );
-    setSavedPlays(updatedPlays);
-    localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
-  };
+  // Unused function - keeping for potential future use
+  // const deleteFolder = (folderId: string) => {
+  //   // Remove folder and unassign plays from it
+  //   const updatedFolders = folders.filter(f => f.id !== folderId);
+  //   setFolders(updatedFolders);
+  //   localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
+  //   
+  //   // Unassign plays from deleted folder
+  //   const updatedPlays = savedPlays.map(play => 
+  //     play.folderId === folderId ? { ...play, folderId: undefined } : play
+  //   );
+  //   setSavedPlays(updatedPlays);
+  //   localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
+  // };
 
   // Helper function to generate smooth path
   const generateSmoothPath = (points: { x: number; y: number }[]): string => {
@@ -270,7 +289,7 @@ export default function MyPlays() {
                         
                         // Calculate arrow direction
                         let startIndex = scaledPoints.length - 2;
-                        let lastPoint = scaledPoints[scaledPoints.length - 1];
+                        const lastPoint = scaledPoints[scaledPoints.length - 1];
                         let secondLastPoint = scaledPoints[startIndex];
                         
           // Find the last significant movement
@@ -455,18 +474,18 @@ export default function MyPlays() {
             </h1>
           </div>
           <div className="flex items-center space-x-8">
-            <a 
+            <Link 
               href="/" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
               Play Builder
-            </a>
-            <a 
+            </Link>
+            <Link 
               href="/my-plays" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
               My Plays
-            </a>
+            </Link>
           </div>
                     </div>
                   </div>

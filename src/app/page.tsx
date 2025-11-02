@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 interface Player {
   id: string;
@@ -46,7 +47,6 @@ interface Folder {
 export default function Home() {
   const [selectedColor, setSelectedColor] = useState<string>('blue');
   const [players, setPlayers] = useState<Player[]>([]);
-  const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [mode, setMode] = useState<'add' | 'select' | 'route' | 'erase'>('add');
   const [draggedPlayer, setDraggedPlayer] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -925,8 +925,8 @@ export default function Home() {
       const trashCan = document.getElementById('trash-can');
       if (trashCan) {
         const rect = trashCan.getBoundingClientRect();
-        const mouseX = window.event ? (window.event as any).clientX : 0;
-        const mouseY = window.event ? (window.event as any).clientY : 0;
+        const mouseX = window.event ? (window.event as MouseEvent).clientX : 0;
+        const mouseY = window.event ? (window.event as MouseEvent).clientY : 0;
         
         if (mouseX >= rect.left && mouseX <= rect.right && mouseY >= rect.top && mouseY <= rect.bottom) {
           // Delete the element
@@ -1176,7 +1176,7 @@ export default function Home() {
     
     if (editingPlayId) {
       // Update existing play
-      const playIndex = savedPlays.findIndex((play: any) => play.id === editingPlayId);
+      const playIndex = savedPlays.findIndex((play: { id: string }) => play.id === editingPlayId);
       if (playIndex !== -1) {
         savedPlays[playIndex] = {
           ...savedPlays[playIndex],
@@ -1522,11 +1522,12 @@ export default function Home() {
     }
 
     // Load gif.js from CDN if not already loaded
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const loadGIFJS = (): Promise<any> => {
       return new Promise((resolve, reject) => {
-        // @ts-ignore
+        // @ts-expect-error - GIF is loaded dynamically from CDN
         if (window.GIF) {
-          // @ts-ignore
+          // @ts-expect-error - GIF is loaded dynamically from CDN
           resolve(window.GIF);
           return;
         }
@@ -1535,7 +1536,7 @@ export default function Home() {
         const script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
         script.onload = () => {
-          // @ts-ignore
+          // @ts-expect-error - GIF is loaded dynamically from CDN
           resolve(window.GIF);
         };
         script.onerror = () => {
@@ -1545,7 +1546,7 @@ export default function Home() {
       });
     };
 
-    loadGIFJS().then((GIF: any) => {
+    loadGIFJS().then((GIF) => {
       const fieldContainer = document.querySelector('.bg-white.relative.overflow-hidden');
       if (!fieldContainer) {
         alert('Could not find canvas area.');
@@ -1990,18 +1991,18 @@ export default function Home() {
 
           {/* Right Side: Nav Links */}
           <div className="flex items-center space-x-8">
-            <a 
+            <Link 
               href="/" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
               Play Builder
-            </a>
-            <a 
+            </Link>
+            <Link 
               href="/my-plays" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
               My Plays
-            </a>
+            </Link>
             </div>
             </div>
         </div>
@@ -2071,7 +2072,7 @@ export default function Home() {
                     e.stopPropagation();
                     // Get all plays in this folder
                     const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-                    const folderPlays = savedPlays.filter((play: any) => play.folderId === folder.id);
+                    const folderPlays = savedPlays.filter((play: { folderId?: string }) => play.folderId === folder.id);
                     
                     try {
                       const { createShareableLink } = await import('./firebase');
@@ -2194,7 +2195,7 @@ export default function Home() {
             // Calculate arrow direction from the last significant movement segment
             // Look back to find a meaningful direction (skip very short segments)
             let startIndex = route.points.length - 2;
-            let lastPoint = route.points[route.points.length - 1];
+            const lastPoint = route.points[route.points.length - 1];
             let secondLastPoint = route.points[startIndex];
             
             // Find the last significant movement (at least 10 pixels)
