@@ -400,26 +400,51 @@ export default function SharedFolderPage() {
   }
 
   // Ensure plays is always an array (safety check with multiple layers)
-  const plays = (() => {
+  const plays: SavedPlay[] = (() => {
+    // Check if sharedFolder or plays exists first
+    if (!sharedFolder || sharedFolder.plays === undefined || sharedFolder.plays === null) {
+      console.warn('sharedFolder or plays is undefined/null, using empty array');
+      return [];
+    }
+    
     const folderPlays = sharedFolder.plays;
+    
+    // If it's already an array, return it
     if (Array.isArray(folderPlays)) {
       return folderPlays;
     }
+    
     // If not array, try to convert it
-    if (folderPlays && typeof folderPlays === 'object') {
+    if (typeof folderPlays === 'object') {
       try {
         // Try converting object to array if it's array-like
         const keys = Object.keys(folderPlays);
         if (keys.length > 0 && keys.every((k, i) => parseInt(k, 10) === i)) {
-          return keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).map(k => folderPlays[k]);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).map(k => (folderPlays as any)[k]) as SavedPlay[];
         }
       } catch (e) {
         console.error('Error converting plays:', e);
       }
     }
-    // Final fallback
+    
+    // Final fallback - always return an array
+    console.warn('Plays conversion failed, using empty array. Type:', typeof folderPlays, 'Value:', folderPlays);
     return [];
   })();
+  
+  // Double-check plays is defined and is an array before using it
+  if (!plays || !Array.isArray(plays)) {
+    console.error('CRITICAL: Plays is still not an array after all conversions:', plays);
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg text-red-600 mb-4">Error loading plays data</div>
+          <Link href="/" className="text-blue-600 hover:text-blue-800 underline">Go to Play Builder</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
