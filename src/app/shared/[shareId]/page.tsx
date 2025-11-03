@@ -357,7 +357,12 @@ export default function SharedFolderPage() {
     const loadSharedFolder = async () => {
       try {
         setLoading(true);
+        console.log('Loading shared folder, shareId:', shareId);
+        console.log('Environment check - Share domain:', process.env.NEXT_PUBLIC_SHARE_DOMAIN || 'not set');
+        
         const folder = await getSharedFolder(shareId);
+        console.log('Received folder:', folder ? 'exists' : 'null');
+        
         if (folder) {
           // Ensure plays is an array BEFORE setting state
           let playsArray: SavedPlay[] = [];

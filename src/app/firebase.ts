@@ -108,6 +108,15 @@ function convertObjectsToArrays(data: any): any {
 // Create a shareable link for a folder
 export async function createShareableLink(folderId: string, folderName: string, plays: SavedPlay[]): Promise<string> {
   try {
+    // Verify Firebase is initialized
+    if (!db) {
+      throw new Error('Firebase not initialized. Check environment variables.');
+    }
+    
+    console.log('Creating shareable link for folder:', folderName, 'with', plays.length, 'plays');
+    console.log('Firebase config check - API Key present:', !!firebaseConfig.apiKey);
+    console.log('Firebase config check - Project ID:', firebaseConfig.projectId);
+    
     const shareId = `share_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     
     // Store plays as JSON string (simpler and more reliable than converting arrays)
@@ -119,19 +128,38 @@ export async function createShareableLink(folderId: string, folderName: string, 
       createdAt: new Date().toISOString()
     };
     
+    console.log('Attempting to save to Firestore with shareId:', shareId);
+    
     // Store in Firestore
     await setDoc(doc(db, 'sharedFolders', shareId), sharedFolder);
     
+    console.log('Successfully saved to Firestore');
+    
     // Use custom domain if provided, otherwise use current origin
-    const baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || window.location.origin;
+    // Only access window on client side
+    let baseUrl: string;
+    if (typeof window !== 'undefined') {
+      baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || window.location.origin;
+    } else {
+      // Server-side fallback
+      baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || 'https://your-project.vercel.app';
+    }
+    
+    const shareUrl = `${baseUrl}/shared/${shareId}`;
+    console.log('Generated share URL:', shareUrl);
     
     // Return the shareable URL
-    return `${baseUrl}/shared/${shareId}`;
+    return shareUrl;
   } catch (error) {
     console.error('Error creating shareable link:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      code: (error as any)?.code,
+      stack: error instanceof Error ? error.stack : undefined
+    });
     // Re-throw with more context
     if (error instanceof Error) {
-      throw new Error(`Firebase error: ${error.message}. Please check Firestore security rules.`);
+      throw new Error(`Firebase error: ${error.message}. Please check Firestore security rules and environment variables.`);
     }
     throw new Error('Failed to create share link. Check console for details.');
   }
@@ -140,8 +168,20 @@ export async function createShareableLink(folderId: string, folderName: string, 
 // Get shared folder data by share ID
 export async function getSharedFolder(shareId: string): Promise<SharedFolder | null> {
   try {
+    // Verify Firebase is initialized
+    if (!db) {
+      console.error('Firebase not initialized. Check environment variables.');
+      return null;
+    }
+    
+    console.log('Fetching shared folder with shareId:', shareId);
+    console.log('Firebase config check - API Key present:', !!firebaseConfig.apiKey);
+    console.log('Firebase config check - Project ID:', firebaseConfig.projectId);
+    
     const docRef = doc(db, 'sharedFolders', shareId);
     const docSnap = await getDoc(docRef);
+    
+    console.log('Document exists:', docSnap.exists());
     
     if (docSnap.exists()) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -195,11 +235,18 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
         expiresAt: data.expiresAt
       };
       
+      console.log('Successfully fetched shared folder:', convertedData.folderName, 'with', convertedData.plays.length, 'plays');
       return convertedData;
     }
+    console.warn('Shared folder not found for shareId:', shareId);
     return null;
   } catch (error) {
     console.error('Error fetching shared folder:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      code: (error as any)?.code,
+      stack: error instanceof Error ? error.stack : undefined
+    });
     return null;
   }
 }
