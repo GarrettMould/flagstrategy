@@ -174,14 +174,18 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       // Convert objects back to arrays
       let plays = data.plays;
       
+      console.log('Raw plays data from Firestore:', typeof plays, Array.isArray(plays), plays);
+      
       // If plays is not already an array, convert it
       if (plays && !Array.isArray(plays)) {
+        console.log('Converting plays from object to array...');
         plays = convertObjectsToArrays(plays);
+        console.log('After conversion:', typeof plays, Array.isArray(plays));
       }
       
       // Ensure plays is an array (fallback to empty array if conversion fails)
       if (!Array.isArray(plays)) {
-        console.warn('Plays data is not in expected format, using empty array');
+        console.warn('Plays data is not in expected format after conversion, using empty array. Type:', typeof plays, 'Value:', plays);
         plays = [];
       }
       
@@ -189,10 +193,12 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
         shareId: data.shareId || shareId,
         folderId: data.folderId || '',
         folderName: data.folderName || '',
-        plays: plays as SavedPlay[],
+        plays: Array.isArray(plays) ? plays : [],
         createdAt: data.createdAt || new Date().toISOString(),
         expiresAt: data.expiresAt
       };
+      
+      console.log('Final converted data plays:', Array.isArray(convertedData.plays), convertedData.plays.length);
       
       return convertedData;
     }
