@@ -326,8 +326,8 @@ export default function SharedFolderPage() {
         if (folder) {
           // Ensure plays is an array
           if (!Array.isArray(folder.plays)) {
-            console.warn('Plays is not an array, attempting conversion or defaulting to empty array');
-            folder.plays = Array.isArray(folder.plays) ? folder.plays : [];
+            console.warn('Plays is not an array, defaulting to empty array');
+            folder.plays = [];
           }
           setSharedFolder(folder);
         } else {
