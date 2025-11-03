@@ -278,7 +278,7 @@ const renderPlayPreview = (play: SavedPlay) => {
             )}
           </svg>
         );
-      })}
+      }) : null}
       
       {/* Players */}
       {play.players && Array.isArray(play.players) ? play.players.map((player) => {
