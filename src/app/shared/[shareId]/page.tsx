@@ -371,8 +371,27 @@ export default function SharedFolderPage() {
     return null;
   }
 
-  // Ensure plays is always an array (safety check)
-  const plays = Array.isArray(sharedFolder.plays) ? sharedFolder.plays : [];
+  // Ensure plays is always an array (safety check with multiple layers)
+  const plays = (() => {
+    const folderPlays = sharedFolder.plays;
+    if (Array.isArray(folderPlays)) {
+      return folderPlays;
+    }
+    // If not array, try to convert it
+    if (folderPlays && typeof folderPlays === 'object') {
+      try {
+        // Try converting object to array if it's array-like
+        const keys = Object.keys(folderPlays);
+        if (keys.length > 0 && keys.every((k, i) => parseInt(k, 10) === i)) {
+          return keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).map(k => folderPlays[k]);
+        }
+      } catch (e) {
+        console.error('Error converting plays:', e);
+      }
+    }
+    // Final fallback
+    return [];
+  })();
 
   return (
     <div className="min-h-screen bg-gray-50">
