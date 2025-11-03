@@ -133,14 +133,12 @@ export async function createShareableLink(folderId: string, folderName: string, 
   try {
     const shareId = `share_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     
-    // Convert nested arrays to objects for Firestore compatibility
-    const playsForFirestore = convertArraysToObjects(plays);
-    
+    // Store plays as JSON string (simpler and more reliable than converting arrays)
     const sharedFolder = {
       shareId,
       folderId,
       folderName,
-      plays: playsForFirestore,
+      playsJson: JSON.stringify(plays), // Store as JSON string instead of trying to convert arrays
       createdAt: new Date().toISOString()
     };
     
@@ -169,49 +167,55 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      const data = docSnap.data() as Partial<SharedFolder>;
+      const data = docSnap.data() as any;
       
-      // Convert objects back to arrays
-      let plays = data.plays;
+      let plays: SavedPlay[] = [];
       
-      console.log('Raw plays data from Firestore:', typeof plays, Array.isArray(plays), plays);
-      
-      // Force conversion: if plays exists and is NOT an array, try to convert it
-      if (plays !== null && plays !== undefined) {
-        if (!Array.isArray(plays)) {
-          console.log('Converting plays from object to array...', plays);
+      // New format: plays stored as JSON string
+      if (data.playsJson && typeof data.playsJson === 'string') {
+        try {
+          plays = JSON.parse(data.playsJson);
+          if (!Array.isArray(plays)) {
+            console.warn('Parsed playsJson is not an array');
+            plays = [];
+          }
+        } catch (parseError) {
+          console.error('Error parsing playsJson:', parseError);
+          plays = [];
+        }
+      }
+      // Legacy format: try to read from old plays field and convert
+      else if (data.plays !== null && data.plays !== undefined) {
+        if (Array.isArray(data.plays)) {
+          plays = data.plays;
+        } else {
+          // Try to convert old format
           try {
-            plays = convertObjectsToArrays(plays);
-            console.log('After conversion:', typeof plays, Array.isArray(plays));
+            plays = convertObjectsToArrays(data.plays);
+            if (!Array.isArray(plays)) {
+              plays = [];
+            }
           } catch (convError) {
-            console.error('Conversion error:', convError);
+            console.error('Error converting legacy plays format:', convError);
             plays = [];
           }
         }
-      } else {
-        // If plays is null/undefined, default to empty array
-        plays = [];
       }
       
-      // Final safety check: ensure plays is an array (fallback to empty array if conversion fails)
+      // Final safety check
       if (!Array.isArray(plays)) {
-        console.warn('Plays is still not an array after conversion, using empty array. Type:', typeof plays, 'Value:', plays);
+        console.warn('Plays is not an array after all attempts, using empty array');
         plays = [];
       }
-      
-      // Double-check one more time before creating the object
-      const finalPlays = Array.isArray(plays) ? plays : [];
       
       const convertedData: SharedFolder = {
         shareId: data.shareId || shareId,
         folderId: data.folderId || '',
         folderName: data.folderName || '',
-        plays: finalPlays,
+        plays: plays,
         createdAt: data.createdAt || new Date().toISOString(),
         expiresAt: data.expiresAt
       };
-      
-      console.log('Final converted data plays:', Array.isArray(convertedData.plays), convertedData.plays.length, typeof convertedData.plays);
       
       return convertedData;
     }
