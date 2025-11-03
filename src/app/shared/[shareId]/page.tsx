@@ -352,11 +352,22 @@ export default function SharedFolderPage() {
           
           // Create new folder object with guaranteed array
           const safeFolder: SharedFolder = {
-            ...folder,
-            plays: playsArray
+            shareId: folder.shareId || shareId,
+            folderId: folder.folderId || '',
+            folderName: folder.folderName || '',
+            plays: playsArray, // Always an array
+            createdAt: folder.createdAt || new Date().toISOString(),
+            expiresAt: folder.expiresAt
           };
           
-          console.log('Setting shared folder with plays array:', Array.isArray(safeFolder.plays), safeFolder.plays.length);
+          // Only log if plays is defined and is an array
+          if (safeFolder.plays && Array.isArray(safeFolder.plays)) {
+            console.log('Setting shared folder with plays array:', safeFolder.plays.length, 'plays');
+          } else {
+            console.error('CRITICAL: safeFolder.plays is not an array:', safeFolder.plays);
+            safeFolder.plays = []; // Force it to be an array
+          }
+          
           setSharedFolder(safeFolder);
         } else {
           setError('Shared folder not found or link has expired.');
