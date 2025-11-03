@@ -341,7 +341,8 @@ export default function SharedFolderPage() {
                 });
                 if (isArrayLike) {
                   const sortedKeys = keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-                  playsArray = sortedKeys.map(k => (folder.plays as any)[k]);
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  playsArray = sortedKeys.map(k => (folder.plays as any)[k]) as SavedPlay[];
                 }
               }
             } catch (convErr) {
