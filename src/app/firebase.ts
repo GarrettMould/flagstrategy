@@ -59,30 +59,7 @@ export interface SharedFolder {
   expiresAt?: string;
 }
 
-// Helper function to convert arrays to objects (Firestore doesn't support nested arrays)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function convertArraysToObjects(data: any): any {
-  if (Array.isArray(data)) {
-    // Convert array to object with numeric keys
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const obj: { [key: string]: any } = {};
-    data.forEach((item, index) => {
-      obj[index.toString()] = convertArraysToObjects(item);
-    });
-    return obj;
-  } else if (data && typeof data === 'object') {
-    // Recursively process object properties
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: { [key: string]: any } = {};
-    for (const key in data) {
-      if (data.hasOwnProperty(key)) {
-        result[key] = convertArraysToObjects(data[key]);
-      }
-    }
-    return result;
-  }
-  return data;
-}
+// Note: convertArraysToObjects removed - now using JSON.stringify/parse instead
 
 // Helper function to convert objects back to arrays
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -167,6 +144,7 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = docSnap.data() as any;
       
       let plays: SavedPlay[] = [];
