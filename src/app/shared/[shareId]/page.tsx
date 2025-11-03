@@ -371,6 +371,9 @@ export default function SharedFolderPage() {
     return null;
   }
 
+  // Ensure plays is always an array (safety check)
+  const plays = Array.isArray(sharedFolder.plays) ? sharedFolder.plays : [];
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -378,7 +381,7 @@ export default function SharedFolderPage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">{sharedFolder.folderName}</h1>
-            <p className="text-sm text-gray-500 mt-1">Shared folder with {sharedFolder.plays.length} play{sharedFolder.plays.length !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-gray-500 mt-1">Shared folder with {plays.length} play{plays.length !== 1 ? 's' : ''}</p>
           </div>
           <Link 
             href="/"
@@ -391,7 +394,7 @@ export default function SharedFolderPage() {
 
       {/* Plays Grid */}
       <div className="p-6">
-        {sharedFolder.plays.length === 0 ? (
+        {plays.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
               <p className="text-lg text-gray-500">No plays in this folder</p>
@@ -399,7 +402,7 @@ export default function SharedFolderPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            {sharedFolder.plays.map((play: SavedPlay) => (
+            {plays.map((play: SavedPlay) => (
               <div
                 key={play.id}
                 className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200"
