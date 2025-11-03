@@ -82,23 +82,45 @@ const generateSmoothPath = (points: { x: number; y: number }[]): string => {
 const renderPlayPreview = (play: SavedPlay) => {
   const allPoints: { x: number; y: number }[] = [];
   
-  play.players.forEach(player => {
-    allPoints.push({ x: player.x, y: player.y });
-  });
-  
-  play.routes?.forEach(route => {
-    route.points.forEach(point => {
-      allPoints.push(point);
+  // Safely access players array
+  if (play.players && Array.isArray(play.players)) {
+    play.players.forEach(player => {
+      if (player && typeof player.x === 'number' && typeof player.y === 'number') {
+        allPoints.push({ x: player.x, y: player.y });
+      }
     });
-  });
+  }
   
-  play.textBoxes?.forEach(textBox => {
-    allPoints.push({ x: textBox.x, y: textBox.y });
-  });
+  // Safely access routes array
+  if (play.routes && Array.isArray(play.routes)) {
+    play.routes.forEach(route => {
+      if (route && route.points && Array.isArray(route.points)) {
+        route.points.forEach(point => {
+          if (point && typeof point.x === 'number' && typeof point.y === 'number') {
+            allPoints.push(point);
+          }
+        });
+      }
+    });
+  }
   
-  play.circles?.forEach(circle => {
-    allPoints.push({ x: circle.x, y: circle.y });
-  });
+  // Safely access textBoxes array
+  if (play.textBoxes && Array.isArray(play.textBoxes)) {
+    play.textBoxes.forEach(textBox => {
+      if (textBox && typeof textBox.x === 'number' && typeof textBox.y === 'number') {
+        allPoints.push({ x: textBox.x, y: textBox.y });
+      }
+    });
+  }
+  
+  // Safely access circles array
+  if (play.circles && Array.isArray(play.circles)) {
+    play.circles.forEach(circle => {
+      if (circle && typeof circle.x === 'number' && typeof circle.y === 'number') {
+        allPoints.push({ x: circle.x, y: circle.y });
+      }
+    });
+  }
   
   if (allPoints.length === 0) {
     return <div className="flex items-center justify-center h-full text-gray-400">No elements</div>;
@@ -131,8 +153,11 @@ const renderPlayPreview = (play: SavedPlay) => {
   return (
     <div className="relative w-full h-full">
       {/* Routes */}
-      {play.routes?.map((route) => {
-        if (route.points.length < 2) return null;
+      {play.routes && Array.isArray(play.routes) ? play.routes.map((route) => {
+        // Check if route and route.points exist and is an array
+        if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) {
+          return null;
+        }
         
         const scaledPoints = route.points.map(point => ({
           x: point.x * scale + offsetX,
@@ -191,6 +216,11 @@ const renderPlayPreview = (play: SavedPlay) => {
             {(route.lineBreakType === 'smooth' || route.lineBreakType === 'smooth-none') ? (
               <path
                 d={(() => {
+                  // Double-check route.points exists and is array
+                  if (!route.points || !Array.isArray(route.points) || route.points.length < 2) {
+                    return '';
+                  }
+                  
                   if (route.lineBreakType === 'smooth' && route.points.length >= 2 && shouldShowArrow) {
                     const lastP = route.points[route.points.length - 1];
                     const secondLastP = route.points[route.points.length - 2];
@@ -215,6 +245,10 @@ const renderPlayPreview = (play: SavedPlay) => {
                     }));
                     return generateSmoothPath(scaled);
                   } else {
+                    // Ensure route.points is array before mapping
+                    if (!route.points || !Array.isArray(route.points)) {
+                      return '';
+                    }
                     const scaled = route.points.map(p => ({
                       x: p.x * scale + offsetX,
                       y: p.y * scale + offsetY
@@ -247,7 +281,8 @@ const renderPlayPreview = (play: SavedPlay) => {
       })}
       
       {/* Players */}
-      {play.players.map((player) => {
+      {play.players && Array.isArray(play.players) ? play.players.map((player) => {
+        if (!player) return null;
         const colorOption = colors.find(c => c.name === player.color);
         return (
           <div
@@ -273,7 +308,7 @@ const renderPlayPreview = (play: SavedPlay) => {
             )}
           </div>
         );
-      })}
+      }) : null}
 
       {/* Text Boxes */}
       {play.textBoxes?.map((textBox) => (
