@@ -169,7 +169,7 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      const data = docSnap.data();
+      const data = docSnap.data() as Partial<SharedFolder>;
       
       // Convert objects back to arrays
       let plays = data.plays;
@@ -186,8 +186,12 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       }
       
       const convertedData: SharedFolder = {
-        ...data,
-        plays: plays as SavedPlay[]
+        shareId: data.shareId || shareId,
+        folderId: data.folderId || '',
+        folderName: data.folderName || '',
+        plays: plays as SavedPlay[],
+        createdAt: data.createdAt || new Date().toISOString(),
+        expiresAt: data.expiresAt
       };
       
       return convertedData;
