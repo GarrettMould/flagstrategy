@@ -324,6 +324,11 @@ export default function SharedFolderPage() {
         setLoading(true);
         const folder = await getSharedFolder(shareId);
         if (folder) {
+          // Ensure plays is an array
+          if (!Array.isArray(folder.plays)) {
+            console.warn('Plays is not an array, attempting conversion or defaulting to empty array');
+            folder.plays = Array.isArray(folder.plays) ? folder.plays : [];
+          }
           setSharedFolder(folder);
         } else {
           setError('Shared folder not found or link has expired.');

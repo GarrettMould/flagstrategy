@@ -87,27 +87,45 @@ function convertArraysToObjects(data: any): any {
 // Helper function to convert objects back to arrays
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function convertObjectsToArrays(data: any): any {
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    // Check if this looks like an array converted to object (has numeric keys 0, 1, 2, etc.)
-    const keys = Object.keys(data);
-    const isArrayLike = keys.length > 0 && keys.every((k, i) => k === i.toString());
-    
-    if (isArrayLike) {
-      // Convert back to array
-      return keys.map(k => convertObjectsToArrays(data[k]));
-    } else {
-      // Recursively process object properties
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result: { [key: string]: any } = {};
-      for (const key in data) {
-        if (data.hasOwnProperty(key)) {
-          result[key] = convertObjectsToArrays(data[key]);
-        }
-      }
-      return result;
-    }
+  // If data is already an array, return it
+  if (Array.isArray(data)) {
+    return data.map(item => convertObjectsToArrays(item));
   }
-  return data;
+  
+  // If data is null or undefined, return as-is
+  if (data == null) {
+    return data;
+  }
+  
+  // If data is not an object, return as-is (primitives)
+  if (typeof data !== 'object') {
+    return data;
+  }
+  
+  // Check if this looks like an array converted to object (has numeric keys 0, 1, 2, etc.)
+  const keys = Object.keys(data);
+  
+  // Check if all keys are numeric (array-like)
+  const isArrayLike = keys.length > 0 && keys.every((k, i) => {
+    const numKey = parseInt(k, 10);
+    return !isNaN(numKey) && numKey === i && k === i.toString();
+  });
+  
+  if (isArrayLike) {
+    // Convert back to array, sorting by numeric keys
+    const sortedKeys = keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    return sortedKeys.map(k => convertObjectsToArrays(data[k]));
+  } else {
+    // Recursively process object properties
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: { [key: string]: any } = {};
+    for (const key in data) {
+      if (data.hasOwnProperty(key)) {
+        result[key] = convertObjectsToArrays(data[key]);
+      }
+    }
+    return result;
+  }
 }
 
 // Create a shareable link for a folder
@@ -152,12 +170,27 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     
     if (docSnap.exists()) {
       const data = docSnap.data();
+      
       // Convert objects back to arrays
-      const convertedData = {
+      let plays = data.plays;
+      
+      // If plays is not already an array, convert it
+      if (plays && !Array.isArray(plays)) {
+        plays = convertObjectsToArrays(plays);
+      }
+      
+      // Ensure plays is an array (fallback to empty array if conversion fails)
+      if (!Array.isArray(plays)) {
+        console.warn('Plays data is not in expected format, using empty array');
+        plays = [];
+      }
+      
+      const convertedData: SharedFolder = {
         ...data,
-        plays: convertObjectsToArrays(data.plays)
+        plays: plays as SavedPlay[]
       };
-      return convertedData as SharedFolder;
+      
+      return convertedData;
     }
     return null;
   } catch (error) {
