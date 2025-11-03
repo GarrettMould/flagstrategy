@@ -154,6 +154,7 @@ export async function createShareableLink(folderId: string, folderName: string, 
     console.error('Error creating shareable link:', error);
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       code: (error as any)?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
@@ -244,6 +245,7 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     console.error('Error fetching shared folder:', error);
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       code: (error as any)?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
