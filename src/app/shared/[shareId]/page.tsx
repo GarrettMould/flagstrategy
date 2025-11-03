@@ -324,12 +324,39 @@ export default function SharedFolderPage() {
         setLoading(true);
         const folder = await getSharedFolder(shareId);
         if (folder) {
-          // Ensure plays is an array
-          if (!Array.isArray(folder.plays)) {
-            console.warn('Plays is not an array, defaulting to empty array');
-            folder.plays = [];
+          // Ensure plays is an array BEFORE setting state
+          let playsArray: SavedPlay[] = [];
+          
+          if (Array.isArray(folder.plays)) {
+            playsArray = folder.plays;
+          } else if (folder.plays && typeof folder.plays === 'object') {
+            // Try to convert object to array
+            try {
+              const keys = Object.keys(folder.plays);
+              if (keys.length > 0) {
+                // Check if it's array-like (numeric keys)
+                const isArrayLike = keys.every((k, i) => {
+                  const numKey = parseInt(k, 10);
+                  return !isNaN(numKey) && numKey === i;
+                });
+                if (isArrayLike) {
+                  const sortedKeys = keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+                  playsArray = sortedKeys.map(k => (folder.plays as any)[k]);
+                }
+              }
+            } catch (convErr) {
+              console.error('Error converting plays object to array:', convErr);
+            }
           }
-          setSharedFolder(folder);
+          
+          // Create new folder object with guaranteed array
+          const safeFolder: SharedFolder = {
+            ...folder,
+            plays: playsArray
+          };
+          
+          console.log('Setting shared folder with plays array:', Array.isArray(safeFolder.plays), safeFolder.plays.length);
+          setSharedFolder(safeFolder);
         } else {
           setError('Shared folder not found or link has expired.');
         }
