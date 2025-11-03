@@ -176,29 +176,42 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       
       console.log('Raw plays data from Firestore:', typeof plays, Array.isArray(plays), plays);
       
-      // If plays is not already an array, convert it
-      if (plays && !Array.isArray(plays)) {
-        console.log('Converting plays from object to array...');
-        plays = convertObjectsToArrays(plays);
-        console.log('After conversion:', typeof plays, Array.isArray(plays));
-      }
-      
-      // Ensure plays is an array (fallback to empty array if conversion fails)
-      if (!Array.isArray(plays)) {
-        console.warn('Plays data is not in expected format after conversion, using empty array. Type:', typeof plays, 'Value:', plays);
+      // Force conversion: if plays exists and is NOT an array, try to convert it
+      if (plays !== null && plays !== undefined) {
+        if (!Array.isArray(plays)) {
+          console.log('Converting plays from object to array...', plays);
+          try {
+            plays = convertObjectsToArrays(plays);
+            console.log('After conversion:', typeof plays, Array.isArray(plays));
+          } catch (convError) {
+            console.error('Conversion error:', convError);
+            plays = [];
+          }
+        }
+      } else {
+        // If plays is null/undefined, default to empty array
         plays = [];
       }
+      
+      // Final safety check: ensure plays is an array (fallback to empty array if conversion fails)
+      if (!Array.isArray(plays)) {
+        console.warn('Plays is still not an array after conversion, using empty array. Type:', typeof plays, 'Value:', plays);
+        plays = [];
+      }
+      
+      // Double-check one more time before creating the object
+      const finalPlays = Array.isArray(plays) ? plays : [];
       
       const convertedData: SharedFolder = {
         shareId: data.shareId || shareId,
         folderId: data.folderId || '',
         folderName: data.folderName || '',
-        plays: Array.isArray(plays) ? plays : [],
+        plays: finalPlays,
         createdAt: data.createdAt || new Date().toISOString(),
         expiresAt: data.expiresAt
       };
       
-      console.log('Final converted data plays:', Array.isArray(convertedData.plays), convertedData.plays.length);
+      console.log('Final converted data plays:', Array.isArray(convertedData.plays), convertedData.plays.length, typeof convertedData.plays);
       
       return convertedData;
     }
