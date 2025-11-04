@@ -417,19 +417,72 @@ export default function SharedFolderPage() {
             }
           }
           
+          // Normalize each play to ensure all nested arrays are arrays
+          const normalizedPlays: SavedPlay[] = playsArray.map((play: SavedPlay) => {
+            // Ensure play object exists
+            if (!play || typeof play !== 'object') {
+              console.warn('Invalid play object found:', play);
+              return null;
+            }
+            
+            // Normalize all nested arrays to ensure they're arrays
+            return {
+              id: play.id || `play_${Date.now()}_${Math.random()}`,
+              name: play.name || 'Unnamed Play',
+              players: Array.isArray(play.players) ? play.players.map((p: Player) => ({
+                id: p?.id || `player_${Math.random()}`,
+                x: typeof p?.x === 'number' ? p.x : 0,
+                y: typeof p?.y === 'number' ? p.y : 0,
+                color: p?.color || 'blue',
+                type: p?.type || 'offense'
+              })) : [],
+              routes: Array.isArray(play.routes) ? play.routes.map((r: Route) => ({
+                id: r?.id || `route_${Math.random()}`,
+                points: Array.isArray(r?.points) ? r.points.filter((p: { x: number; y: number }) => 
+                  p && typeof p.x === 'number' && typeof p.y === 'number'
+                ) : [],
+                style: r?.style || 'solid',
+                lineBreakType: r?.lineBreakType || 'rigid',
+                showArrow: r?.showArrow !== undefined ? r.showArrow : true
+              })) : [],
+              textBoxes: Array.isArray(play.textBoxes) ? play.textBoxes.map((t: TextBox) => ({
+                id: t?.id || `textbox_${Math.random()}`,
+                x: typeof t?.x === 'number' ? t.x : 0,
+                y: typeof t?.y === 'number' ? t.y : 0,
+                text: t?.text || '',
+                fontSize: typeof t?.fontSize === 'number' ? t.fontSize : 14,
+                color: t?.color || '#000000'
+              })) : [],
+              circles: Array.isArray(play.circles) ? play.circles.map((c: Circle) => ({
+                id: c?.id || `circle_${Math.random()}`,
+                x: typeof c?.x === 'number' ? c.x : 0,
+                y: typeof c?.y === 'number' ? c.y : 0,
+                radius: typeof c?.radius === 'number' ? c.radius : 10,
+                color: c?.color || '#000000'
+              })) : []
+            };
+          }).filter((play): play is SavedPlay => play !== null);
+          
           // Create new folder object with guaranteed array
           const safeFolder: SharedFolder = {
             shareId: folder.shareId || shareId,
             folderId: folder.folderId || '',
             folderName: folder.folderName || '',
-            plays: playsArray, // Always an array
+            plays: normalizedPlays, // Always an array with normalized data
             createdAt: folder.createdAt || new Date().toISOString(),
             expiresAt: folder.expiresAt
           };
           
           // Only log if plays is defined and is an array
           if (safeFolder.plays && Array.isArray(safeFolder.plays)) {
-            console.log('Setting shared folder with plays array:', safeFolder.plays.length, 'plays');
+            console.log('Setting shared folder with normalized plays array:', safeFolder.plays.length, 'plays');
+            console.log('Sample play structure:', safeFolder.plays[0] ? {
+              id: safeFolder.plays[0].id,
+              playersCount: safeFolder.plays[0].players?.length || 0,
+              routesCount: safeFolder.plays[0].routes?.length || 0,
+              textBoxesCount: safeFolder.plays[0].textBoxes?.length || 0,
+              circlesCount: safeFolder.plays[0].circles?.length || 0
+            } : 'No plays');
           } else {
             console.error('CRITICAL: safeFolder.plays is not an array:', safeFolder.plays);
             safeFolder.plays = []; // Force it to be an array
