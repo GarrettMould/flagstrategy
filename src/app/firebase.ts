@@ -113,7 +113,7 @@ export async function createShareableLink(folderId: string, folderName: string, 
       throw new Error('Firebase not initialized. Check environment variables.');
     }
     
-    console.log('Creating shareable link for folder:', folderName, 'with', plays.length, 'plays');
+    console.log('Creating shareable link for folder:', folderName, 'with', Array.isArray(plays) ? plays.length : 0, 'plays');
     console.log('Firebase config check - API Key present:', !!firebaseConfig.apiKey);
     console.log('Firebase config check - Project ID:', firebaseConfig.projectId);
     
@@ -181,8 +181,6 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     }
     
     console.log('Fetching shared folder with shareId:', shareId);
-    console.log('Firebase config check - API Key present:', !!firebaseConfig.apiKey);
-    console.log('Firebase config check - Project ID:', firebaseConfig.projectId);
     
     const docRef = doc(db, 'sharedFolders', shareId);
     const docSnap = await getDoc(docRef);
@@ -193,55 +191,17 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = docSnap.data() as any;
       
-      let plays: SavedPlay[] = [];
-      
-      // New format: plays stored as JSON string
-      if (data.playsJson && typeof data.playsJson === 'string') {
-        try {
-          plays = JSON.parse(data.playsJson);
-          if (!Array.isArray(plays)) {
-            console.warn('Parsed playsJson is not an array');
-            plays = [];
-          }
-        } catch (parseError) {
-          console.error('Error parsing playsJson:', parseError);
-          plays = [];
-        }
-      }
-      // Legacy format: try to read from old plays field and convert
-      else if (data.plays !== null && data.plays !== undefined) {
-        if (Array.isArray(data.plays)) {
-          plays = data.plays;
-        } else {
-          // Try to convert old format
-          try {
-            plays = convertObjectsToArrays(data.plays);
-            if (!Array.isArray(plays)) {
-              plays = [];
-            }
-          } catch (convError) {
-            console.error('Error converting legacy plays format:', convError);
-            plays = [];
-          }
-        }
-      }
-      
-      // Final safety check
-      if (!Array.isArray(plays)) {
-        console.warn('Plays is not an array after all attempts, using empty array');
-        plays = [];
-      }
-      
+      // SIMPLIFIED: Just return the folder info, don't process plays at all
       const convertedData: SharedFolder = {
         shareId: data.shareId || shareId,
         folderId: data.folderId || '',
-        folderName: data.folderName || '',
-        plays: plays,
+        folderName: data.folderName || 'Test Folder',
+        plays: [], // Always empty array for now
         createdAt: data.createdAt || new Date().toISOString(),
         expiresAt: data.expiresAt
       };
       
-      console.log('Successfully fetched shared folder:', convertedData.folderName, 'with', convertedData.plays.length, 'plays');
+      console.log('Successfully fetched shared folder:', convertedData.folderName);
       return convertedData;
     }
     console.warn('Shared folder not found for shareId:', shareId);
