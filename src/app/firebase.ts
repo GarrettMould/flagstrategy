@@ -145,6 +145,11 @@ export async function createShareableLink(folderId: string, folderName: string, 
       baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || 'https://your-project.vercel.app';
     }
     
+    // Ensure baseUrl has protocol
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = `https://${baseUrl}`;
+    }
+    
     const shareUrl = `${baseUrl}/shared/${shareId}`;
     console.log('Generated share URL:', shareUrl);
     

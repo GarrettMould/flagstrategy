@@ -80,47 +80,48 @@ const generateSmoothPath = (points: { x: number; y: number }[]): string => {
 
 // Render play preview with proper scaling
 const renderPlayPreview = (play: SavedPlay) => {
+  // Ensure play is valid
+  if (!play) {
+    return <div className="flex items-center justify-center h-full text-gray-400">Invalid play data</div>;
+  }
+  
   const allPoints: { x: number; y: number }[] = [];
   
-  // Safely access players array
-  if (play.players && Array.isArray(play.players)) {
-    play.players.forEach(player => {
-      if (player && typeof player.x === 'number' && typeof player.y === 'number') {
-        allPoints.push({ x: player.x, y: player.y });
-      }
-    });
-  }
+  // Safely access players array - default to empty array if undefined
+  const players = Array.isArray(play.players) ? play.players : [];
+  players.forEach(player => {
+    if (player && typeof player.x === 'number' && typeof player.y === 'number') {
+      allPoints.push({ x: player.x, y: player.y });
+    }
+  });
   
-  // Safely access routes array
-  if (play.routes && Array.isArray(play.routes)) {
-    play.routes.forEach(route => {
-      if (route && route.points && Array.isArray(route.points)) {
-        route.points.forEach(point => {
-          if (point && typeof point.x === 'number' && typeof point.y === 'number') {
-            allPoints.push(point);
-          }
-        });
-      }
-    });
-  }
+  // Safely access routes array - default to empty array if undefined
+  const routes = Array.isArray(play.routes) ? play.routes : [];
+  routes.forEach(route => {
+    if (route && route.points && Array.isArray(route.points)) {
+      route.points.forEach(point => {
+        if (point && typeof point.x === 'number' && typeof point.y === 'number') {
+          allPoints.push(point);
+        }
+      });
+    }
+  });
   
-  // Safely access textBoxes array
-  if (play.textBoxes && Array.isArray(play.textBoxes)) {
-    play.textBoxes.forEach(textBox => {
-      if (textBox && typeof textBox.x === 'number' && typeof textBox.y === 'number') {
-        allPoints.push({ x: textBox.x, y: textBox.y });
-      }
-    });
-  }
+  // Safely access textBoxes array - default to empty array if undefined
+  const textBoxes = Array.isArray(play.textBoxes) ? play.textBoxes : [];
+  textBoxes.forEach(textBox => {
+    if (textBox && typeof textBox.x === 'number' && typeof textBox.y === 'number') {
+      allPoints.push({ x: textBox.x, y: textBox.y });
+    }
+  });
   
-  // Safely access circles array
-  if (play.circles && Array.isArray(play.circles)) {
-    play.circles.forEach(circle => {
-      if (circle && typeof circle.x === 'number' && typeof circle.y === 'number') {
-        allPoints.push({ x: circle.x, y: circle.y });
-      }
-    });
-  }
+  // Safely access circles array - default to empty array if undefined
+  const circles = Array.isArray(play.circles) ? play.circles : [];
+  circles.forEach(circle => {
+    if (circle && typeof circle.x === 'number' && typeof circle.y === 'number') {
+      allPoints.push({ x: circle.x, y: circle.y });
+    }
+  });
   
   if (allPoints.length === 0) {
     return <div className="flex items-center justify-center h-full text-gray-400">No elements</div>;
@@ -150,16 +151,36 @@ const renderPlayPreview = (play: SavedPlay) => {
   const offsetX = (containerWidth - scaledWidth) / 2 - (minX - padding) * scale;
   const offsetY = (containerHeight - scaledHeight) / 2 - (minY - padding) * scale;
 
+  // Use the safe arrays we created above
+  const safeRoutes = Array.isArray(play.routes) ? play.routes : [];
+  const safePlayers = Array.isArray(play.players) ? play.players : [];
+  const safeTextBoxes = Array.isArray(play.textBoxes) ? play.textBoxes : [];
+  const safeCircles = Array.isArray(play.circles) ? play.circles : [];
+  
   return (
     <div className="relative w-full h-full">
       {/* Routes */}
-      {play.routes && Array.isArray(play.routes) ? play.routes.map((route) => {
+      {safeRoutes.map((route) => {
         // Check if route and route.points exist and is an array
-        if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) {
+        if (!route || !route.id) {
           return null;
         }
         
-        const scaledPoints = route.points.map(point => ({
+        // Ensure route.points is an array
+        if (!route.points || !Array.isArray(route.points) || route.points.length < 2) {
+          return null;
+        }
+        
+        // Ensure all points are valid
+        const validPoints = route.points.filter(point => 
+          point && typeof point.x === 'number' && typeof point.y === 'number'
+        );
+        
+        if (validPoints.length < 2) {
+          return null;
+        }
+        
+        const scaledPoints = validPoints.map(point => ({
           x: point.x * scale + offsetX,
           y: point.y * scale + offsetY
         }));
@@ -278,11 +299,11 @@ const renderPlayPreview = (play: SavedPlay) => {
             )}
           </svg>
         );
-      }) : null}
+      })}
       
       {/* Players */}
-      {play.players && Array.isArray(play.players) ? play.players.map((player) => {
-        if (!player) return null;
+      {safePlayers.map((player) => {
+        if (!player || !player.id) return null;
         const colorOption = colors.find(c => c.name === player.color);
         return (
           <div
@@ -308,40 +329,46 @@ const renderPlayPreview = (play: SavedPlay) => {
             )}
           </div>
         );
-      }) : null}
+      })}
 
       {/* Text Boxes */}
-      {play.textBoxes?.map((textBox) => (
-        <div
-          key={textBox.id}
-          className="absolute transform -translate-x-1/2 -translate-y-1/2 bg-white bg-opacity-80 px-2 py-1 rounded border border-gray-300 shadow-sm"
-          style={{
-            left: textBox.x * scale + offsetX,
-            top: textBox.y * scale + offsetY,
-            fontSize: `${Math.max(10, textBox.fontSize * scale)}px`,
-            color: textBox.color,
-            zIndex: 3
-          }}
-        >
-          {textBox.text}
-        </div>
-      ))}
+      {safeTextBoxes.map((textBox) => {
+        if (!textBox || !textBox.id) return null;
+        return (
+          <div
+            key={textBox.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 bg-white bg-opacity-80 px-2 py-1 rounded border border-gray-300 shadow-sm"
+            style={{
+              left: textBox.x * scale + offsetX,
+              top: textBox.y * scale + offsetY,
+              fontSize: `${Math.max(10, textBox.fontSize * scale)}px`,
+              color: textBox.color,
+              zIndex: 3
+            }}
+          >
+            {textBox.text}
+          </div>
+        );
+      })}
 
       {/* Circles */}
-      {play.circles?.map((circle) => (
-        <div
-          key={circle.id}
-          className="absolute transform -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{
-            left: circle.x * scale + offsetX,
-            top: circle.y * scale + offsetY,
-            width: `${circle.radius * 2 * scale}px`,
-            height: `${circle.radius * 2 * scale}px`,
-            backgroundColor: circle.color,
-            zIndex: 3
-          }}
-        />
-      ))}
+      {safeCircles.map((circle) => {
+        if (!circle || !circle.id) return null;
+        return (
+          <div
+            key={circle.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              left: circle.x * scale + offsetX,
+              top: circle.y * scale + offsetY,
+              width: `${circle.radius * 2 * scale}px`,
+              height: `${circle.radius * 2 * scale}px`,
+              backgroundColor: circle.color,
+              zIndex: 3
+            }}
+          />
+        );
+      }) : null}
     </div>
   );
 };
@@ -525,38 +552,56 @@ export default function SharedFolderPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            {plays.map((play: SavedPlay) => (
-              <div
-                key={play.id}
-                className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200"
-              >
-                {/* Play Preview */}
-                <div className="w-full bg-white relative" style={{ height: '300px', aspectRatio: '4/3' }}>
-                  {/* Field Lines */}
-                  <div className="absolute inset-0 opacity-20">
-                    {/* Yard Lines */}
-                    {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
-                      <div
-                        key={percent}
-                        className="absolute left-0 right-0 bg-gray-400"
-                        style={{ top: `${percent}%`, height: '1px' }}
-                      />
-                    ))}
-                    {/* Sidelines */}
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gray-400"></div>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-400"></div>
+            {plays.map((play: SavedPlay) => {
+              // Ensure play is valid and has all required properties
+              if (!play || !play.id) {
+                console.warn('Invalid play object:', play);
+                return null;
+              }
+              
+              // Ensure all nested arrays exist and are arrays
+              const safePlay: SavedPlay = {
+                id: play.id,
+                name: play.name || 'Unnamed Play',
+                players: Array.isArray(play.players) ? play.players : [],
+                routes: Array.isArray(play.routes) ? play.routes : [],
+                textBoxes: Array.isArray(play.textBoxes) ? play.textBoxes : [],
+                circles: Array.isArray(play.circles) ? play.circles : []
+              };
+              
+              return (
+                <div
+                  key={safePlay.id}
+                  className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200"
+                >
+                  {/* Play Preview */}
+                  <div className="w-full bg-white relative" style={{ height: '300px', aspectRatio: '4/3' }}>
+                    {/* Field Lines */}
+                    <div className="absolute inset-0 opacity-20">
+                      {/* Yard Lines */}
+                      {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
+                        <div
+                          key={percent}
+                          className="absolute left-0 right-0 bg-gray-400"
+                          style={{ top: `${percent}%`, height: '1px' }}
+                        />
+                      ))}
+                      {/* Sidelines */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gray-400"></div>
+                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-400"></div>
+                    </div>
+
+                    {/* Play Content */}
+                    {renderPlayPreview(safePlay)}
                   </div>
 
-                  {/* Play Content */}
-                  {renderPlayPreview(play)}
+                  {/* Play Name */}
+                  <div className="p-3">
+                    <h3 className="text-sm font-medium text-gray-900 truncate">{safePlay.name}</h3>
+                  </div>
                 </div>
-
-                {/* Play Name */}
-                <div className="p-3">
-                  <h3 className="text-sm font-medium text-gray-900 truncate">{play.name}</h3>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
