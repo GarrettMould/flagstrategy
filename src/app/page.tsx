@@ -1346,10 +1346,8 @@ export default function Home() {
 
     // Draw players
     // Player icons on canvas are w-12 h-12 (48px = 3rem), so radius is 24px
-    // If baseSize matches canvas size, we need to calculate proportionally
-    // 24px radius / canvas size = proportional radius
-    // For a typical canvas, this works out to approximately baseSize * 0.04
-    const playerRadius = baseSize * 0.04; // Increased from 0.02 to match actual canvas size
+    // Making them slightly smaller in downloaded image - reduce from 0.04 to 0.03
+    const playerRadius = baseSize * 0.03; // Slightly smaller for downloaded images
     [...players, ...defensivePlayers].forEach(player => {
       let playerColor = '#6b7280'; // default gray
       let playerLabel = '';
@@ -1394,11 +1392,10 @@ export default function Home() {
       ctx.stroke();
       
       // Draw label if exists
-      // Font size should match proportionally - actual font is text-xs (12px)
-      // For 48px circle, 12px font is appropriate, so for baseSize, use similar ratio
+      // Font size should match proportionally with smaller icon size
       if (playerLabel) {
         ctx.fillStyle = 'white';
-        ctx.font = `${baseSize * 0.025}px Arial`; // Increased from 0.015 to match actual size
+        ctx.font = `${baseSize * 0.02}px Arial`; // Slightly smaller to match reduced icon size
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(playerLabel, x, y);
