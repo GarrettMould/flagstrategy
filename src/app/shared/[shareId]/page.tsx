@@ -418,7 +418,7 @@ export default function SharedFolderPage() {
           }
           
           // Normalize each play to ensure all nested arrays are arrays
-          const normalizedPlays: SavedPlay[] = playsArray.map((play: SavedPlay) => {
+          const normalizedPlays: SavedPlay[] = playsArray.map((play: SavedPlay): SavedPlay | null => {
             // Ensure play object exists
             if (!play || typeof play !== 'object') {
               console.warn('Invalid play object found:', play);
