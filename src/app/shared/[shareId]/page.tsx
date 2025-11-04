@@ -368,7 +368,7 @@ const renderPlayPreview = (play: SavedPlay) => {
             }}
           />
         );
-      }) : null}
+      })}
     </div>
   );
 };
