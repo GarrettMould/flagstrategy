@@ -655,7 +655,7 @@ export default function SharedFolderPage() {
                   </div>
                 </div>
               );
-            })}
+            }) : null}
           </div>
         )}
       </div>
