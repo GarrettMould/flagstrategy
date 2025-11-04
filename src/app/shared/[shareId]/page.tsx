@@ -531,51 +531,52 @@ export default function SharedFolderPage() {
   }
 
   // Ensure plays is always an array (safety check with multiple layers)
-  const plays: SavedPlay[] = (() => {
+  // Use try-catch to prevent any errors from crashing the component
+  let plays: SavedPlay[] = [];
+  try {
     // Check if sharedFolder or plays exists first
     if (!sharedFolder || sharedFolder.plays === undefined || sharedFolder.plays === null) {
       console.warn('sharedFolder or plays is undefined/null, using empty array');
-      return [];
-    }
-    
-    const folderPlays = sharedFolder.plays;
-    
-    // If it's already an array, return it
-    if (Array.isArray(folderPlays)) {
-      return folderPlays;
-    }
-    
-    // If not array, try to convert it
-    if (typeof folderPlays === 'object') {
-      try {
-        // Try converting object to array if it's array-like
-        const keys = Object.keys(folderPlays);
-        if (keys.length > 0 && keys.every((k, i) => parseInt(k, 10) === i)) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).map(k => (folderPlays as any)[k]) as SavedPlay[];
+      plays = [];
+    } else {
+      const folderPlays = sharedFolder.plays;
+      
+      // If it's already an array, use it
+      if (Array.isArray(folderPlays)) {
+        plays = folderPlays;
+      }
+      // If not array, try to convert it
+      else if (typeof folderPlays === 'object') {
+        try {
+          // Try converting object to array if it's array-like
+          const keys = Object.keys(folderPlays);
+          if (keys.length > 0 && keys.every((k, i) => parseInt(k, 10) === i)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            plays = keys.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).map(k => (folderPlays as any)[k]) as SavedPlay[];
+          } else {
+            plays = [];
+          }
+        } catch (e) {
+          console.error('Error converting plays:', e);
+          plays = [];
         }
-      } catch (e) {
-        console.error('Error converting plays:', e);
+      } else {
+        plays = [];
       }
     }
-    
-    // Final fallback - always return an array
-    console.warn('Plays conversion failed, using empty array. Type:', typeof folderPlays, 'Value:', folderPlays);
-    return [];
-  })();
-  
-  // Double-check plays is defined and is an array before using it
-  if (!plays || !Array.isArray(plays)) {
-    console.error('CRITICAL: Plays is still not an array after all conversions:', plays);
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg text-red-600 mb-4">Error loading plays data</div>
-          <Link href="/" className="text-blue-600 hover:text-blue-800 underline">Go to Play Builder</Link>
-        </div>
-      </div>
-    );
+  } catch (error) {
+    console.error('Error processing plays array:', error);
+    plays = [];
   }
+  
+  // Final safety check - ensure plays is an array
+  if (!Array.isArray(plays)) {
+    console.error('CRITICAL: Plays is still not an array after all conversions:', plays);
+    plays = [];
+  }
+  
+  // Ensure plays.length is safe to access
+  const playsLength = Array.isArray(plays) ? plays.length : 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -584,7 +585,7 @@ export default function SharedFolderPage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">{sharedFolder.folderName}</h1>
-            <p className="text-sm text-gray-500 mt-1">Shared folder with {plays.length} play{plays.length !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-gray-500 mt-1">Shared folder with {playsLength} play{playsLength !== 1 ? 's' : ''}</p>
           </div>
           <Link 
             href="/"
@@ -597,7 +598,7 @@ export default function SharedFolderPage() {
 
       {/* Plays Grid */}
       <div className="p-6">
-        {plays.length === 0 ? (
+        {playsLength === 0 ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
               <p className="text-lg text-gray-500">No plays in this folder</p>
@@ -605,9 +606,9 @@ export default function SharedFolderPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            {plays.map((play: SavedPlay) => {
+            {Array.isArray(plays) ? plays.map((play: SavedPlay) => {
               // Ensure play is valid and has all required properties
-              if (!play || !play.id) {
+              if (!play || !play.id || typeof play !== 'object') {
                 console.warn('Invalid play object:', play);
                 return null;
               }
