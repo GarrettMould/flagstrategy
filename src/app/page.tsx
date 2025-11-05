@@ -341,7 +341,6 @@ export default function Home() {
     { name: 'red', color: 'bg-red-500', label: 'Z' },
     { name: 'green', color: 'bg-green-500', label: 'Y' },
     { name: 'yellow', color: 'bg-yellow-500', label: 'C' },
-    { name: 'purple', color: 'bg-purple-500', label: '' },
     { name: 'qb', color: 'bg-black', label: 'QB' },
   ];
 
@@ -589,7 +588,7 @@ export default function Home() {
         positionX = fieldWidth * 0.85; // Far right
         break;
       default:
-        // For purple, QB, and other colors, use default spacing logic
+        // For QB and other colors, use default spacing logic
     const existingPlayersOnSameLine = players.filter(p => 
       Math.abs(p.y - middleY) < fieldHeight * 0.05 // Within 5% of the same yard line
     );
@@ -610,6 +609,69 @@ export default function Home() {
     setPlayers([...players, newPlayer]);
     setMode('select'); // Switch to select mode after adding a player
     // Save state after adding player (use setTimeout to ensure state is updated)
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  const addAllPlayersToCanvas = () => {
+    // Deselect route drawing if active
+    if (selectedRouteStyle) {
+      setSelectedRouteStyle(null);
+      setSelectedLineBreakType(null);
+      setIsDrawingRoute(false);
+      setCurrentRoute([]);
+    }
+    
+    // Calculate field dimensions
+    const fieldWidth = window.innerWidth * 0.75 * 0.6; // 60% of the canvas area (75% of screen)
+    const fieldHeight = fieldWidth / 0.92; // Height based on aspect ratio
+    
+    const middleY = fieldHeight / 2;
+    const qbY = fieldHeight / 2 + (fieldHeight * 0.1); // QB goes one line behind
+    
+    // Create all players at their default positions
+    const newPlayers: Player[] = colors.map((colorOption, index) => {
+      let positionX: number;
+      let y: number;
+      
+      switch (colorOption.name) {
+        case 'blue':
+          positionX = fieldWidth * 0.2; // Left part
+          y = middleY;
+          break;
+        case 'yellow':
+          positionX = fieldWidth * 0.5; // Middle
+          y = middleY;
+          break;
+        case 'green':
+          positionX = fieldWidth * 0.65; // Right of middle
+          y = middleY;
+          break;
+        case 'red':
+          positionX = fieldWidth * 0.85; // Far right
+          y = middleY;
+          break;
+        case 'qb':
+          positionX = fieldWidth * 0.5; // Center
+          y = qbY;
+          break;
+        default:
+          positionX = fieldWidth * 0.5;
+          y = middleY;
+      }
+      
+      return {
+        id: `${Date.now()}-${index}-${Math.random().toString(36).substring(2, 9)}`,
+        x: positionX,
+        y: y,
+        color: colorOption.name,
+        type: 'offense' as const
+      };
+    });
+    
+    // Add all players at once
+    setPlayers([...players, ...newPlayers]);
+    setMode('select');
+    // Save state after adding players
     setTimeout(() => saveToHistory(), 0);
   };
 
@@ -1362,7 +1424,6 @@ export default function Home() {
           'red': '#ef4444',
           'green': '#22c55e',
           'yellow': '#eab308',
-          'purple': '#a855f7',
           'qb': '#000000'
         };
         // Map color names to labels
@@ -1730,7 +1791,6 @@ export default function Home() {
                          player.color === 'red' ? '#ef4444' :
                          player.color === 'green' ? '#22c55e' :
                          player.color === 'yellow' ? '#eab308' :
-                         player.color === 'purple' ? '#a855f7' :
                          player.color === 'qb' ? '#000000' : '#6b7280';
           ctx.beginPath();
           ctx.arc(x, y, radius, 0, 2 * Math.PI);
@@ -1890,10 +1950,10 @@ export default function Home() {
                 )}
             </button>
             <button
-                className={`w-10 h-10 border rounded flex items-center justify-center transition-colors ${
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
                 defensiveFormation === 'zone'
-                    ? 'border-gray-900 bg-gray-50'
-                    : 'border-gray-200 hover:border-gray-300'
+                    ? 'bg-gray-50'
+                    : ''
               }`}
               onClick={() => {
                 setDefensiveFormation('zone');
@@ -1913,7 +1973,7 @@ export default function Home() {
               <span className="text-sm font-medium text-gray-700">Tools:</span>
             <div className="flex space-x-2">
             <button
-                  className="w-10 h-10 border-2 rounded flex items-center justify-center transition-colors text-black border-gray-300 hover:border-gray-400"
+                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
                   onClick={addTextBoxToCanvas}
                   title="Add Text Box"
                 >
@@ -1922,7 +1982,7 @@ export default function Home() {
               </svg>
             </button>
             <button
-                  className="w-10 h-10 border-2 rounded flex items-center justify-center transition-colors text-black border-gray-300 hover:border-gray-400"
+                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
                   onClick={addCircleToCanvas}
                   title="Add Circle"
                 >
@@ -1931,10 +1991,10 @@ export default function Home() {
               </svg>
             </button>
             <button
-                  className={`w-10 h-10 border-2 rounded flex items-center justify-center transition-colors text-black ${
+                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors text-black ${
                 mode === 'erase'
-                  ? 'border-red-500 bg-red-50'
-                  : 'border-gray-300 hover:border-gray-400'
+                  ? 'bg-red-50'
+                  : ''
               }`}
               onClick={() => setMode('erase')}
               title="Erase Players and Routes"
@@ -2631,9 +2691,7 @@ export default function Home() {
                 {colors.map((colorOption) => (
                   <div
                     key={colorOption.name}
-                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer border-2 ${
-                      selectedColor === colorOption.name ? 'border-gray-800' : 'border-gray-300'
-                    } hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0`}
+                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0`}
                     onClick={() => {
                       setSelectedColor(colorOption.name);
                       addPlayerToCanvas(colorOption.name);
@@ -2646,6 +2704,18 @@ export default function Home() {
                     )}
                   </div>
                 ))}
+                <button
+                  onClick={addAllPlayersToCanvas}
+                  disabled={players.length > 0}
+                  className={`w-12 h-12 rounded flex items-center justify-center text-xs font-medium transition-transform ${
+                    players.length > 0
+                      ? 'bg-gray-50 text-gray-400 cursor-not-allowed opacity-50'
+                      : 'bg-gray-100 hover:bg-gray-200 cursor-pointer text-gray-700 hover:scale-105'
+                  }`}
+                  title={players.length > 0 ? "Clear canvas first to add all positions" : "Add All Positions"}
+                >
+                  Add All
+                </button>
       </div>
       </div>
 
@@ -2655,10 +2725,10 @@ export default function Home() {
               <div className="flex flex-col gap-1">
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
-                    className={`w-12 h-12 border rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
                       selectedRouteStyle === 'solid' && selectedLineBreakType === 'rigid'
-                        ? 'border-gray-900 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-gray-50'
+                        : ''
                     }`}
                     onClick={() => {
                       setSelectedRouteStyle('solid');
@@ -2672,10 +2742,10 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 border-2 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
                       selectedRouteStyle === 'solid' && selectedLineBreakType === 'smooth'
-                        ? 'border-gray-900 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-gray-50'
+                        : ''
                     }`}
                     onClick={() => {
                       setSelectedRouteStyle('solid');
@@ -2689,10 +2759,10 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 border rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'rigid'
-                        ? 'border-gray-900 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-gray-50'
+                        : ''
                     }`}
                     onClick={() => {
                       setSelectedRouteStyle('dashed');
@@ -2706,10 +2776,10 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 border rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth'
-                        ? 'border-gray-900 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-gray-50'
+                        : ''
                     }`}
                     onClick={() => {
                       setSelectedRouteStyle('dashed');
@@ -2723,10 +2793,10 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 border rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'none'
-                        ? 'border-gray-900 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-gray-50'
+                        : ''
                     }`}
                     onClick={() => {
                       setSelectedRouteStyle('dashed');
@@ -2739,10 +2809,10 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 border rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth-none'
-                        ? 'border-gray-900 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-gray-50'
+                        : ''
                     }`}
                     onClick={() => {
                       setSelectedRouteStyle('dashed');

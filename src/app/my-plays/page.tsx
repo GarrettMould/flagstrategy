@@ -59,7 +59,6 @@ const colors = [
   { name: 'red', color: 'bg-red-500', label: '' },
   { name: 'green', color: 'bg-green-500', label: '' },
   { name: 'yellow', color: 'bg-yellow-500', label: '' },
-  { name: 'purple', color: 'bg-purple-500', label: '' },
   { name: 'qb', color: 'bg-black', label: 'QB' },
 ];
 
