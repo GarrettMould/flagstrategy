@@ -13,6 +13,11 @@ export default function SharedFolderPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     async function fetchData() {
       if (!shareId) {
         setError('No share ID provided');
@@ -24,7 +29,7 @@ export default function SharedFolderPage() {
         setLoading(true);
         const folder = await getSharedFolder(shareId);
         
-        if (folder) {
+        if (folder && folder.shareId) {
           setFetchedShareId(folder.shareId);
         } else {
           setError('Shared folder not found');

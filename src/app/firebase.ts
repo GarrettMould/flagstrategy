@@ -224,13 +224,21 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       let plays: SavedPlay[] = [];
       if (data.playsJson) {
         try {
-          plays = JSON.parse(data.playsJson);
+          const parsed = JSON.parse(data.playsJson);
+          // Ensure parsed result is an array
+          plays = Array.isArray(parsed) ? parsed : [];
           console.log('Successfully parsed', plays.length, 'plays from JSON');
         } catch (parseError) {
           console.error('Error parsing playsJson:', parseError);
           // If parsing fails, return empty array rather than failing entirely
           plays = [];
         }
+      }
+      
+      // Ensure plays is always an array (defensive check)
+      if (!Array.isArray(plays)) {
+        console.warn('Plays is not an array, defaulting to empty array');
+        plays = [];
       }
       
       const convertedData: SharedFolder = {
