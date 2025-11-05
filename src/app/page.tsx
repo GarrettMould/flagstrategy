@@ -158,8 +158,8 @@ export default function Home() {
     
     // For each route, find the closest player and associate them
     routes.forEach(route => {
-      if (route.points.length > 0) {
-        const routeStart = route.points[0];
+      if (!route || !route.points || !Array.isArray(route.points) || route.points.length === 0) return;
+      const routeStart = route.points[0];
         let closestPlayer: Player | null = null;
         let closestDistance = Infinity;
         
@@ -1038,6 +1038,7 @@ export default function Home() {
     
     // Calculate total distance for all routes
     const totalDistance = routes.reduce((total, route) => {
+      if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return total;
       let distance = 0;
       for (let i = 1; i < route.points.length; i++) {
         const dx = route.points[i].x - route.points[i - 1].x;
@@ -1118,7 +1119,7 @@ export default function Home() {
       associatedRouteIds.includes(route.id) && route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none'
     );
     
-    if (!route || route.points.length < 2) return { x: player.x, y: player.y };
+    if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return { x: player.x, y: player.y };
     
     // Calculate total distance of the entire route
     let totalDistance = 0;
@@ -1440,7 +1441,7 @@ export default function Home() {
     ctx.strokeStyle = 'black';
     ctx.lineWidth = lineWidth * 3;
     routes.forEach(route => {
-      if (route.points.length < 2) return;
+      if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return;
       
       // Set line dash pattern for dashed routes
       if (route.style === 'dashed') {
@@ -1757,7 +1758,7 @@ export default function Home() {
         ctx.strokeStyle = 'black';
         ctx.lineWidth = lineWidth * 3;
         routes.forEach(route => {
-          if (route.points.length < 2) return;
+          if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return;
           
           if (route.style === 'dashed') {
             ctx.setLineDash([8, 4]);
@@ -2251,7 +2252,7 @@ export default function Home() {
           </div>
           {/* Routes */}
           {routes.map((route) => {
-            if (route.points.length < 2) return null;
+            if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
             
             // Calculate arrow direction from the last significant movement segment
             // Look back to find a meaningful direction (skip very short segments)

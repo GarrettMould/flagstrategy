@@ -279,7 +279,7 @@ export default function MyPlays() {
                     <div className="relative w-full h-full">
         {/* Routes */}
                       {play.routes?.map((route) => {
-                        if (route.points.length < 2) return null;
+                        if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
                         
           // Scale and offset route points
                         const scaledPoints = route.points.map(point => ({
