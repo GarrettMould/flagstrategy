@@ -1456,7 +1456,8 @@ export default function Home() {
       );
       
       // Draw route line, but stop slightly before the end if there's an arrow
-      const endIndex = (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none') ? route.points.length - 1 : route.points.length;
+      const shouldShowArrow = route.showArrow !== false && route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none';
+      const endIndex = shouldShowArrow ? route.points.length - 1 : route.points.length;
       
       for (let i = 1; i < endIndex; i++) {
         ctx.lineTo(
@@ -1466,7 +1467,7 @@ export default function Home() {
       }
       
       // If there's an arrow, draw the last segment but stop short of the actual end point
-      if (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' && route.points.length >= 2) {
+      if (shouldShowArrow && route.points.length >= 2) {
         const lastPoint = route.points[route.points.length - 1];
         const secondLastPoint = route.points[route.points.length - 2];
         
@@ -1492,7 +1493,7 @@ export default function Home() {
       ctx.stroke();
       
       // Draw arrow at the end
-      if (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' && route.points.length >= 2) {
+      if (shouldShowArrow && route.points.length >= 2) {
         const lastPoint = route.points[route.points.length - 1];
         const secondLastPoint = route.points[route.points.length - 2];
         
