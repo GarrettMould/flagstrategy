@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { getSharedFolder } from '../firebase';
+import { getSharedFolder } from '../../firebase';
 
 export default function SharedFolderPage() {
   const params = useParams();
