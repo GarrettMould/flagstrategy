@@ -160,23 +160,22 @@ export default function Home() {
     routes.forEach(route => {
       if (!route || !route.points || !Array.isArray(route.points) || route.points.length === 0) return;
       const routeStart = route.points[0];
-        let closestPlayer: Player | null = null;
-        let closestDistance = Infinity;
-        
-        for (const player of players) {
-          const distance = Math.sqrt(
-            Math.pow(routeStart.x - player.x, 2) + Math.pow(routeStart.y - player.y, 2)
-          );
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestPlayer = player;
-          }
+      let closestPlayer: Player | null = null;
+      let closestDistance = Infinity;
+      
+      for (const player of players) {
+        const distance = Math.sqrt(
+          Math.pow(routeStart.x - player.x, 2) + Math.pow(routeStart.y - player.y, 2)
+        );
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestPlayer = player;
         }
-        
-        if (closestPlayer) {
-          const existingRoutes = associations.get(closestPlayer.id) || [];
-          associations.set(closestPlayer.id, [...existingRoutes, route.id]);
-        }
+      }
+      
+      if (closestPlayer) {
+        const existingRoutes = associations.get(closestPlayer.id) || [];
+        associations.set(closestPlayer.id, [...existingRoutes, route.id]);
       }
     });
     
