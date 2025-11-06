@@ -522,7 +522,7 @@ export default function SharedFolderPage() {
               Import Plays
             </h3>
             <p className="text-gray-600 mb-6">
-              This will import {plays.length} play(s) from "{sharedFolder.folderName}" into your My Plays collection. You can then organize them into your own folders.
+              This will import {plays.length} play(s) from &quot;{sharedFolder.folderName}&quot; into your My Plays collection. You can then organize them into your own folders.
             </p>
             <div className="flex justify-end space-x-3">
               <button

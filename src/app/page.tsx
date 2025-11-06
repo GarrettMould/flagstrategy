@@ -45,6 +45,7 @@ interface Folder {
 }
 
 export default function Home() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedColor, setSelectedColor] = useState<string>('blue');
   const [players, setPlayers] = useState<Player[]>([]);
   const [mode, setMode] = useState<'add' | 'select' | 'route' | 'erase'>('add');

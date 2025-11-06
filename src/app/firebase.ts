@@ -95,8 +95,8 @@ export interface SharedFolder {
 
 // Note: convertArraysToObjects removed - now using JSON.stringify/parse instead
 
-// Helper function to convert objects back to arrays
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Helper function to convert objects back to arrays (kept for potential future use)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
 function convertObjectsToArrays(data: any): any {
   // If data is already an array, return it
   if (Array.isArray(data)) {
