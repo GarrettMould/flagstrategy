@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from './contexts/AuthContext';
-import { saveUserData, loadUserData, UserData } from './firebase';
+import { saveUserData, loadUserData, UserData, SavedPlay } from './firebase';
 
 interface Player {
   id: string;
@@ -108,6 +108,7 @@ export default function Home() {
   const { user, loading: authLoading } = useAuth();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedColor, setSelectedColor] = useState<string>('blue');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isLoadingUserData, setIsLoadingUserData] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [mode, setMode] = useState<'add' | 'select' | 'route' | 'erase'>('add');
@@ -1929,7 +1930,7 @@ export default function Home() {
     }
   }, [user, authLoading]);
 
-  const syncToCloud = async (savedPlays: any[], folders: Folder[]) => {
+  const syncToCloud = async (savedPlays: SavedPlay[], folders: Folder[]) => {
     if (user) {
       try {
         const userData: UserData = {

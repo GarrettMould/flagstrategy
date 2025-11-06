@@ -28,20 +28,21 @@ export default function LoginPage() {
       }
       // Redirect to home page after successful login
       router.push('/');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Auth error:', err);
-      if (err.code === 'auth/email-already-in-use') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/email-already-in-use') {
         setError('This email is already registered. Please sign in instead.');
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (error.code === 'auth/invalid-email') {
         setError('Invalid email address.');
-      } else if (err.code === 'auth/weak-password') {
+      } else if (error.code === 'auth/weak-password') {
         setError('Password should be at least 6 characters.');
-      } else if (err.code === 'auth/user-not-found') {
+      } else if (error.code === 'auth/user-not-found') {
         setError('No account found with this email.');
-      } else if (err.code === 'auth/wrong-password') {
+      } else if (error.code === 'auth/wrong-password') {
         setError('Incorrect password.');
       } else {
-        setError(err.message || 'An error occurred. Please try again.');
+        setError(error.message || 'An error occurred. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -56,14 +57,15 @@ export default function LoginPage() {
       await signInWithGoogle();
       // Redirect to home page after successful login
       router.push('/');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Google auth error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/popup-closed-by-user') {
         setError('Sign-in was cancelled.');
-      } else if (err.code === 'auth/popup-blocked') {
+      } else if (error.code === 'auth/popup-blocked') {
         setError('Popup was blocked. Please allow popups for this site.');
       } else {
-        setError(err.message || 'Failed to sign in with Google. Please try again.');
+        setError(error.message || 'Failed to sign in with Google. Please try again.');
       }
     } finally {
       setGoogleLoading(false);
