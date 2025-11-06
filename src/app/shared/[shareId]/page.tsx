@@ -41,13 +41,13 @@ interface Circle {
 interface SavedPlay {
   id: string;
   name: string;
-  playbook: string;
+  playbook?: string;
   folderId?: string;
   players: Player[];
   routes: Route[];
   textBoxes?: TextBox[];
   circles?: Circle[];
-  createdAt: string;
+  createdAt?: string;
   playerRouteAssociations?: [string, string[]][];
 }
 
