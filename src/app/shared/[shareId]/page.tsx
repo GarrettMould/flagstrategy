@@ -18,7 +18,7 @@ interface Route {
   points: { x: number; y: number }[];
   style: 'solid' | 'dashed';
   lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
-  color: string;
+  color?: string; // Optional to match Firebase SavedPlay interface
 }
 
 interface TextBox {
