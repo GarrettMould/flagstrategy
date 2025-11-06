@@ -424,7 +424,7 @@ export default function SharedFolderPage() {
     );
   }
 
-  const plays = sharedFolder.plays || [];
+  const plays = (sharedFolder.plays || []) as SavedPlay[];
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
