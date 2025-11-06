@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 interface SavedPlay {
   id: string;
@@ -36,7 +37,7 @@ interface SavedPlay {
 
 // Firebase configuration
 export const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyB2H02PIXKOLcFtnMK7vssKiEATOPOIHtg",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyB2H02PIXKOLcFtnMK7vssKiEATOpOIHtg",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "flagfootballplays-a7abc.firebaseapp.com",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "flagfootballplays-a7abc",
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "flagfootballplays-a7abc.firebasestorage.app",
@@ -48,8 +49,9 @@ export const firebaseConfig = {
 // Lazy initialization - only initialize Firebase on the client side when actually needed
 let app: ReturnType<typeof initializeApp> | null = null;
 let db: ReturnType<typeof getFirestore> | null = null;
+let auth: ReturnType<typeof getAuth> | null = null;
 
-function getDb() {
+function getApp() {
   // Only initialize on client side
   if (typeof window === 'undefined') {
     throw new Error('Firebase can only be used on the client side');
@@ -76,11 +78,27 @@ function getDb() {
     }
   }
   
+  return app;
+}
+
+function getDb() {
+  const firebaseApp = getApp();
+  
   if (!db) {
-    db = getFirestore(app);
+    db = getFirestore(firebaseApp);
   }
   
   return db;
+}
+
+function getAuthInstance() {
+  const firebaseApp = getApp();
+  
+  if (!auth) {
+    auth = getAuth(firebaseApp);
+  }
+  
+  return auth;
 }
 
 // Folder sharing interface
@@ -267,5 +285,144 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       stack: error instanceof Error ? error.stack : undefined
     });
     return null;
+  }
+}
+
+// User data interface
+export interface UserData {
+  savedPlays: SavedPlay[];
+  folders: Array<{
+    id: string;
+    name: string;
+    createdAt: string;
+  }>;
+  updatedAt: string;
+}
+
+// Authentication functions
+export async function signUp(email: string, password: string): Promise<User> {
+  try {
+    const authInstance = getAuthInstance();
+    const userCredential = await createUserWithEmailAndPassword(authInstance, email, password);
+    
+    // Create initial user data document in Firestore
+    const userData: UserData = {
+      savedPlays: [],
+      folders: [],
+      updatedAt: new Date().toISOString()
+    };
+    
+    const firestoreDb = getDb();
+    await setDoc(doc(firestoreDb, 'users', userCredential.user.uid), userData);
+    
+    return userCredential.user;
+  } catch (error) {
+    console.error('Error signing up:', error);
+    throw error;
+  }
+}
+
+export async function logIn(email: string, password: string): Promise<User> {
+  try {
+    const authInstance = getAuthInstance();
+    const userCredential = await signInWithEmailAndPassword(authInstance, email, password);
+    return userCredential.user;
+  } catch (error) {
+    console.error('Error logging in:', error);
+    throw error;
+  }
+}
+
+export async function signInWithGoogle(): Promise<User> {
+  try {
+    const authInstance = getAuthInstance();
+    const provider = new GoogleAuthProvider();
+    const userCredential = await signInWithPopup(authInstance, provider);
+    
+    // Check if this is a new user and create user data document if needed
+    const firestoreDb = getDb();
+    const userDocRef = doc(firestoreDb, 'users', userCredential.user.uid);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      // New user - create initial user data document
+      const userData: UserData = {
+        savedPlays: [],
+        folders: [],
+        updatedAt: new Date().toISOString()
+      };
+      await setDoc(userDocRef, userData);
+    }
+    
+    return userCredential.user;
+  } catch (error) {
+    console.error('Error signing in with Google:', error);
+    throw error;
+  }
+}
+
+export async function logOut(): Promise<void> {
+  try {
+    const authInstance = getAuthInstance();
+    await signOut(authInstance);
+  } catch (error) {
+    console.error('Error logging out:', error);
+    throw error;
+  }
+}
+
+export function onAuthStateChange(callback: (user: User | null) => void) {
+  const authInstance = getAuthInstance();
+  return onAuthStateChanged(authInstance, callback);
+}
+
+// Get current user
+export function getCurrentUser(): User | null {
+  const authInstance = getAuthInstance();
+  return authInstance.currentUser;
+}
+
+// Save user data to Firestore (cloud-first)
+export async function saveUserData(userId: string, data: UserData): Promise<void> {
+  try {
+    const firestoreDb = getDb();
+    const userDataWithTimestamp = {
+      ...data,
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'users', userId), userDataWithTimestamp, { merge: true });
+  } catch (error) {
+    console.error('Error saving user data:', error);
+    throw error;
+  }
+}
+
+// Load user data from Firestore
+export async function loadUserData(userId: string): Promise<UserData | null> {
+  try {
+    const firestoreDb = getDb();
+    const docRef = doc(firestoreDb, 'users', userId);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data() as UserData;
+      return {
+        savedPlays: Array.isArray(data.savedPlays) ? data.savedPlays : [],
+        folders: Array.isArray(data.folders) ? data.folders : [],
+        updatedAt: data.updatedAt || new Date().toISOString()
+      };
+    }
+    
+    // If user document doesn't exist, create it
+    const initialData: UserData = {
+      savedPlays: [],
+      folders: [],
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(docRef, initialData);
+    return initialData;
+  } catch (error) {
+    console.error('Error loading user data:', error);
+    throw error;
   }
 }

@@ -14,10 +14,17 @@ Since you started Firestore in **production mode**, you need to set up security 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow anyone to read shared folders (since they're meant to be shared via links)
+    // Shared folders - anyone can read, authenticated users can create
     match /sharedFolders/{shareId} {
-      allow read: if true;
-      allow write: if true; // Allow anyone to create share links
+      allow read: if true; // Anyone can read shared folders (via share links)
+      allow write: if request.auth != null; // Only authenticated users can create share links
+    }
+    
+    // User data - users can only read/write their own data
+    match /users/{userId} {
+      // Allow users to read and write their own user document
+      // This allows account creation (when userId matches auth.uid)
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
@@ -27,31 +34,38 @@ service cloud.firestore {
 
 ## What These Rules Do
 
+### Shared Folders (`sharedFolders`)
 - **`allow read: if true`** - Anyone with the share link can read/view the shared folder
-- **`allow write: if true`** - Anyone can create share links (needed for the share button to work)
+- **`allow write: if request.auth != null`** - Only authenticated users can create share links
 
-## More Secure Option (Recommended for Production)
+### User Data (`users`)
+- **`allow read, write: if request.auth != null && request.auth.uid == userId`** - Users can only read and write their own user document
+  - This allows users to create their account (when they sign up, a document is created with their user ID)
+  - Users can save/load their plays and folders
+  - Users cannot access other users' data
 
-If you want more control, you can add authentication later:
+## Alternative: Allow Public Sharing (Less Secure)
+
+If you want to allow anyone to create share links without authentication:
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /sharedFolders/{shareId} {
-      // Anyone can read shared folders
       allow read: if true;
-      
-      // Only authenticated users can create shares
-      // Uncomment this when you add Firebase Authentication:
-      // allow write: if request.auth != null;
-      
-      // Or for now, allow anyone to create shares:
-      allow write: if true;
+      allow write: if true; // Allow anyone to create shares (less secure)
+    }
+    
+    // User data still requires authentication
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
 ```
+
+**Note:** The recommended rules above require authentication for creating shares, which is more secure.
 
 ## Test the Rules
 

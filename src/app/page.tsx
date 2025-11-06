@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useAuth } from './contexts/AuthContext';
+import { saveUserData, loadUserData, UserData } from './firebase';
 
 interface Player {
   id: string;
@@ -44,9 +46,69 @@ interface Folder {
   createdAt: string;
 }
 
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const [showMenu, setShowMenu] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setShowMenu(false);
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
+  if (!user) {
+    return (
+      <Link
+        href="/login"
+        className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      >
+        Sign In
+      </Link>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <span className="hidden sm:inline">{user.email}</span>
+      </button>
+      {showMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setShowMenu(false)}
+          />
+          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-20">
+            <div className="px-4 py-2 text-sm text-gray-700 border-b">
+              {user.email}
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            >
+              Sign Out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
+  const { user, loading: authLoading } = useAuth();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedColor, setSelectedColor] = useState<string>('blue');
+  const [isLoadingUserData, setIsLoadingUserData] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [mode, setMode] = useState<'add' | 'select' | 'route' | 'erase'>('add');
   const [draggedPlayer, setDraggedPlayer] = useState<string | null>(null);
@@ -91,9 +153,26 @@ export default function Home() {
   const [history, setHistory] = useState<{ players: Player[], routes: Route[], textBoxes: TextBox[], circles: Circle[], playerRouteAssociations: Map<string, string[]> }[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [saveAnimation, setSaveAnimation] = useState<{ active: boolean; folderId: string | null; startX: number; startY: number; endX: number; endY: number } | null>(null);
+  // Store custom routes with their associated player color
+  const [customQuickAddRoutes, setCustomQuickAddRoutes] = useState<(Route & { playerColor?: string } | null)[]>(Array(8).fill(null)); // 8 slots (4 standard + 4 custom)
+  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [isSelecting, setIsSelecting] = useState<boolean>(false);
+  const [selectedItems, setSelectedItems] = useState<{
+    players: string[];
+    routes: string[];
+    textBoxes: string[];
+    circles: string[];
+  }>({ players: [], routes: [], textBoxes: [], circles: [] });
   const [showDownloadDropdown, setShowDownloadDropdown] = useState<boolean>(false);
   const [openFolderMenu, setOpenFolderMenu] = useState<string | null>(null);
   const [showDeleteFolderConfirm, setShowDeleteFolderConfirm] = useState<string | null>(null);
+  const saveHistoryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const historyIndexRef = useRef<number>(-1);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    historyIndexRef.current = historyIndex;
+  }, [historyIndex]);
 
   const showCustomAlert = (message: string) => {
     setAlertMessage(message);
@@ -104,54 +183,91 @@ export default function Home() {
   };
 
   const saveToHistory = () => {
-    const currentState = {
-      players: [...players],
-      routes: [...routes],
-      textBoxes: [...textBoxes],
-      circles: [...circles],
-      playerRouteAssociations: new Map(playerRouteAssociations)
-    };
-    
-    // Remove any history after current index
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(currentState);
-    
-    // Limit history to 50 states to prevent memory issues
-    if (newHistory.length > 50) {
-      newHistory.shift();
-    } else {
-      setHistoryIndex(historyIndex + 1);
+    // Clear any pending save to prevent duplicate entries when actions happen quickly
+    if (saveHistoryTimeoutRef.current) {
+      clearTimeout(saveHistoryTimeoutRef.current);
     }
     
-    setHistory(newHistory);
+    // Debounce the save to batch rapid actions (50ms delay)
+    saveHistoryTimeoutRef.current = setTimeout(() => {
+      // Capture current state at the time of execution
+      const currentState = {
+        players: [...players],
+        routes: [...routes],
+        textBoxes: [...textBoxes],
+        circles: [...circles],
+        playerRouteAssociations: new Map(playerRouteAssociations)
+      };
+      
+      // Use functional updates with ref to get latest index
+      setHistory(prevHistory => {
+        const currentIndex = historyIndexRef.current;
+        // Remove any history after current index
+        const newHistory = prevHistory.slice(0, currentIndex + 1);
+        newHistory.push(currentState);
+        
+        // Limit history to 50 states to prevent memory issues
+        if (newHistory.length > 50) {
+          newHistory.shift();
+          // Update index ref but don't increment (we removed first item)
+          setHistoryIndex(currentIndex);
+          historyIndexRef.current = currentIndex;
+        } else {
+          // Increment index
+          const newIndex = currentIndex + 1;
+          setHistoryIndex(newIndex);
+          historyIndexRef.current = newIndex;
+        }
+        
+        return newHistory;
+      });
+    }, 50); // 50ms debounce to batch rapid actions
   };
 
   const undo = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      const state = history[newIndex];
-      
-      setPlayers([...state.players]);
-      setRoutes([...state.routes]);
-      setTextBoxes([...state.textBoxes]);
-      setCircles([...(state.circles || [])]);
-      setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
-      setHistoryIndex(newIndex);
-    }
+    // Use functional updates to ensure we're working with latest state
+    setHistoryIndex(prevIndex => {
+      if (prevIndex > 0) {
+        const newIndex = prevIndex - 1;
+        setHistory(prevHistory => {
+          const state = prevHistory[newIndex];
+          if (state) {
+            setPlayers([...state.players]);
+            setRoutes([...state.routes]);
+            setTextBoxes([...state.textBoxes]);
+            setCircles([...(state.circles || [])]);
+            setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
+            historyIndexRef.current = newIndex;
+          }
+          return prevHistory;
+        });
+        return newIndex;
+      }
+      return prevIndex;
+    });
   };
 
   const redo = () => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      const state = history[newIndex];
-      
-      setPlayers([...state.players]);
-      setRoutes([...state.routes]);
-      setTextBoxes([...state.textBoxes]);
-      setCircles([...(state.circles || [])]);
-      setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
-      setHistoryIndex(newIndex);
-    }
+    // Use functional updates to ensure we're working with latest state
+    setHistoryIndex(prevIndex => {
+      let newIndex = prevIndex;
+      setHistory(prevHistory => {
+        if (prevIndex < prevHistory.length - 1) {
+          newIndex = prevIndex + 1;
+          const state = prevHistory[newIndex];
+          if (state) {
+            setPlayers([...state.players]);
+            setRoutes([...state.routes]);
+            setTextBoxes([...state.textBoxes]);
+            setCircles([...(state.circles || [])]);
+            setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
+            historyIndexRef.current = newIndex;
+          }
+        }
+        return prevHistory;
+      });
+      return newIndex;
+    });
   };
 
   const rebuildPlayerRouteAssociations = (players: Player[], routes: Route[]) => {
@@ -351,12 +467,32 @@ export default function Home() {
       setDraggedElement(null);
       setShowTrashCan(false);
     
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Handle selection box in select mode
+    if (mode === 'select' && !selectedRouteStyle) {
+      // Check if clicking on an item or delete button (if so, don't start selection box)
+      const target = e.target as HTMLElement;
+      const isClickingItem = target.closest('[data-player]') || 
+                            target.closest('[data-route]') || 
+                            target.closest('[data-textbox]') || 
+                            target.closest('[data-circle]') ||
+                            target.closest('button'); // Don't start selection if clicking a button
+      
+      if (!isClickingItem) {
+        // Start selection box
+        setIsSelecting(true);
+        setSelectionBox({ startX: x, startY: y, endX: x, endY: y });
+        setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [] });
+      }
+      return;
+    }
+    
     // Only handle route drawing if route style is selected
     if (selectedRouteStyle) {
       console.log('Starting route drawing, selectedRouteStyle:', selectedRouteStyle);
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
       
         // Start a new route
         setCurrentRoute([{ x, y }]);
@@ -368,6 +504,15 @@ export default function Home() {
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Handle selection box dragging
+    if (isSelecting && selectionBox) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setSelectionBox({ ...selectionBox, endX: x, endY: y });
+      return;
+    }
+    
     // Only handle route drawing if route is being drawn
     if (selectedRouteStyle && isDrawingRoute && currentRoute.length > 0) {
       const rect = e.currentTarget.getBoundingClientRect();
@@ -450,7 +595,65 @@ export default function Home() {
     }
   };
 
+  // Detect items within selection box
+  const detectItemsInSelectionBox = (box: { startX: number; startY: number; endX: number; endY: number }) => {
+    const minX = Math.min(box.startX, box.endX);
+    const maxX = Math.max(box.startX, box.endX);
+    const minY = Math.min(box.startY, box.endY);
+    const maxY = Math.max(box.startY, box.endY);
+    
+    const selectedPlayers = players.filter(player => 
+      player.x >= minX && player.x <= maxX && player.y >= minY && player.y <= maxY
+    ).map(p => p.id);
+    
+    const selectedRoutes = routes.filter(route => {
+      // Check if any point of the route is within the selection box
+      return route.points.some(point => 
+        point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
+      );
+    }).map(r => r.id);
+    
+    const selectedTextBoxes = textBoxes.filter(textBox => 
+      textBox.x >= minX && textBox.x <= maxX && textBox.y >= minY && textBox.y <= maxY
+    ).map(tb => tb.id);
+    
+    const selectedCircles = circles.filter(circle => {
+      // Check if circle center is within selection box, or if circle overlaps
+      const circleLeft = circle.x - circle.radius;
+      const circleRight = circle.x + circle.radius;
+      const circleTop = circle.y - circle.radius;
+      const circleBottom = circle.y + circle.radius;
+      
+      return !(circleRight < minX || circleLeft > maxX || circleBottom < minY || circleTop > maxY);
+    }).map(c => c.id);
+    
+    return {
+      players: selectedPlayers,
+      routes: selectedRoutes,
+      textBoxes: selectedTextBoxes,
+      circles: selectedCircles
+    };
+  };
+
   const handleCanvasMouseUp = () => {
+    // Handle selection box completion
+    if (isSelecting && selectionBox) {
+      const minX = Math.min(selectionBox.startX, selectionBox.endX);
+      const maxX = Math.max(selectionBox.startX, selectionBox.endX);
+      const minY = Math.min(selectionBox.startY, selectionBox.endY);
+      const maxY = Math.max(selectionBox.startY, selectionBox.endY);
+      
+      // Only select if box has meaningful size (at least 10px)
+      if (Math.abs(maxX - minX) > 10 || Math.abs(maxY - minY) > 10) {
+        const items = detectItemsInSelectionBox(selectionBox);
+        setSelectedItems(items);
+      }
+      
+      setIsSelecting(false);
+      setSelectionBox(null);
+      return;
+    }
+    
     // Only handle route completion if route is being drawn
     if (selectedRouteStyle && isDrawingRoute && currentRoute.length >= 2) {
       // Find the closest player (if any) to associate with this route
@@ -676,73 +879,512 @@ export default function Home() {
     setTimeout(() => saveToHistory(), 0);
   };
 
+  // Get default position for a player color
+  // Uses the same calculation as addAllPlayers and addPlayerToCanvas for consistency
+  const getDefaultPlayerPosition = (color: string) => {
+    // Use the same calculation method as addAllPlayers/addPlayerToCanvas
+    const fieldWidth = window.innerWidth * 0.75 * 0.6; // 60% of the canvas area (75% of screen)
+    const fieldHeight = fieldWidth / 0.92; // Height based on aspect ratio
+    
+    const middleY = fieldHeight / 2;
+    const qbY = fieldHeight / 2 + (fieldHeight * 0.1); // QB goes one line behind
+    
+    switch (color) {
+      case 'blue':
+        return { x: fieldWidth * 0.2, y: middleY };
+      case 'yellow':
+        return { x: fieldWidth * 0.5, y: middleY };
+      case 'green':
+        return { x: fieldWidth * 0.65, y: middleY };
+      case 'red':
+        return { x: fieldWidth * 0.85, y: middleY };
+      case 'qb':
+        return { x: fieldWidth * 0.5, y: qbY };
+      default:
+        return { x: fieldWidth * 0.5, y: middleY };
+    }
+  };
+
+  // Route button icon definitions (for bottom menu buttons)
+  // These are rendered in 50x50 viewBox, so routes should be normalized/scaled appropriately
+  const routeButtonIcons: Record<string, { points: { x: number; y: number }[]; style: 'solid' | 'dashed'; lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none'; color: string }> = {
+    'solid-rigid': {
+      points: [
+        { x: 21.50684931506848, y: 39.99999999999997 },
+        { x: 21.917808219178085, y: 21.917808219178056 },
+        { x: 22.328767123287662, y: 21.917808219178056 },
+        { x: 27.260273972602732, y: 30.13698630136986 },
+        { x: 27.67123287671231, y: 30.13698630136986 },
+        { x: 28.493150684931493, y: 10 }
+      ],
+      style: 'solid',
+      lineBreakType: 'rigid',
+      color: 'black'
+    },
+    'solid-smooth': {
+      points: [
+        { x: 10, y: 35 },
+        { x: 20, y: 35 },
+        { x: 25, y: 30 },
+        { x: 30, y: 20 }
+      ],
+      style: 'solid',
+      lineBreakType: 'smooth',
+      color: 'black'
+    },
+    'dashed-rigid': {
+      points: [
+        { x: 10, y: 35 },
+        { x: 20, y: 35 },
+        { x: 20, y: 20 },
+        { x: 30, y: 20 }
+      ],
+      style: 'dashed',
+      lineBreakType: 'rigid',
+      color: 'black'
+    },
+    'dashed-smooth': {
+      points: [
+        { x: 10, y: 35 },
+        { x: 20, y: 35 },
+        { x: 25, y: 30 },
+        { x: 30, y: 20 }
+      ],
+      style: 'dashed',
+      lineBreakType: 'smooth',
+      color: 'black'
+    },
+    'dashed-none': {
+      points: [
+        { x: 10, y: 25 },
+        { x: 40, y: 25 }
+      ],
+      style: 'dashed',
+      lineBreakType: 'none',
+      color: 'black'
+    },
+    'dashed-smooth-none': {
+      points: [
+        { x: 10, y: 35 },
+        { x: 20, y: 35 },
+        { x: 25, y: 30 },
+        { x: 30, y: 20 }
+      ],
+      style: 'dashed',
+      lineBreakType: 'smooth-none',
+      color: 'black'
+    }
+  };
+
+  // Helper function to render a route in a button icon (50x50 viewBox)
+  const renderRouteButtonIcon = (routeData: { points: { x: number; y: number }[]; style: 'solid' | 'dashed'; lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none'; color: string }) => {
+    const { points, style, lineBreakType, color } = routeData;
+    
+    if (points.length < 2) return null;
+    
+    // Check if we should show arrow
+    const shouldShowArrow = lineBreakType !== 'none' && lineBreakType !== 'smooth-none';
+    
+    // Calculate path points (stop slightly before end if showing arrow)
+    let pathPoints = points;
+    if (shouldShowArrow && points.length >= 2) {
+      const lastPoint = points[points.length - 1];
+      const secondLastPoint = points[points.length - 2];
+      const dx = lastPoint.x - secondLastPoint.x;
+      const dy = lastPoint.y - secondLastPoint.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      const arrowGap = 3; // Smaller gap for button icons
+      const stopDistance = Math.max(0, distance - arrowGap);
+      const stopRatio = distance > 0 ? stopDistance / distance : 0;
+      
+      const arrowStopPoint = {
+        x: secondLastPoint.x + dx * stopRatio,
+        y: secondLastPoint.y + dy * stopRatio
+      };
+      
+      pathPoints = points.slice(0, -1);
+      pathPoints.push(arrowStopPoint);
+    }
+    
+    // Generate path string
+    let pathD = '';
+    if (lineBreakType === 'smooth' || lineBreakType === 'smooth-none') {
+      if (pathPoints.length === 2) {
+        pathD = `M ${pathPoints[0].x} ${pathPoints[0].y} L ${pathPoints[1].x} ${pathPoints[1].y}`;
+      } else {
+        pathD = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+        for (let i = 1; i < pathPoints.length; i++) {
+          if (i < pathPoints.length - 1) {
+            const curr = pathPoints[i];
+            const next = pathPoints[i + 1];
+            const controlX = (curr.x + next.x) / 2;
+            const controlY = (curr.y + next.y) / 2;
+            pathD += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+          } else {
+            pathD += ` L ${pathPoints[i].x} ${pathPoints[i].y}`;
+          }
+        }
+      }
+    } else {
+      pathD = `M ${pathPoints.map(p => `${p.x},${p.y}`).join(' L ')}`;
+    }
+    
+    // Calculate arrow if needed
+    let arrowElement = null;
+    if (shouldShowArrow && points.length >= 2) {
+      const lastPoint = points[points.length - 1];
+      const secondLastPoint = points[points.length - 2];
+      const dx = lastPoint.x - secondLastPoint.x;
+      const dy = lastPoint.y - secondLastPoint.y;
+      const angle = Math.atan2(dy, dx);
+      const arrowLength = 7; // Increased from 5 for more prominence
+      const arrowWidth = 4; // Increased from 2.5 for more prominence
+      const arrowX = lastPoint.x - Math.cos(angle) * arrowLength;
+      const arrowY = lastPoint.y - Math.sin(angle) * arrowLength;
+      
+      arrowElement = (
+        <polygon
+          points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle - Math.PI / 2) * arrowWidth} ${arrowX - Math.cos(angle + Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle + Math.PI / 2) * arrowWidth}`}
+          fill={color}
+        />
+      );
+    }
+    
+    return (
+      <>
+        <path
+          d={pathD}
+          stroke={color}
+          strokeWidth="4"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray={style === 'dashed' ? '5,5' : 'none'}
+        />
+        {arrowElement}
+      </>
+    );
+  };
+
+  // Default route definitions (normalized to start at 0,0)
+  const defaultRouteData: Record<string, { points: { x: number; y: number }[]; style: 'solid' | 'dashed'; lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none'; color: string; playerColor: string }> = {
+    slant: {
+      points: [
+        { x: 1, y: 214 },
+        { x: 0, y: 93 },
+        { x: 1, y: 92 },
+        { x: 135, y: 0 }
+      ],
+      style: 'solid',
+      lineBreakType: 'rigid',
+      color: 'black',
+      playerColor: 'red'
+    },
+    post: {
+      points: [
+        { x: 1, y: 56 },
+        { x: 0, y: 2 },
+        { x: 0, y: 1 },
+        { x: 129, y: 0 }
+      ],
+      style: 'solid',
+      lineBreakType: 'rigid',
+      color: 'black',
+      playerColor: 'red'
+    },
+    hitch: {
+      // Hitch: forward then back (placeholder - will be replaced)
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: -80 },
+        { x: 100, y: -40 }
+      ],
+      style: 'solid',
+      lineBreakType: 'smooth',
+      color: 'black',
+      playerColor: 'red'
+    },
+    corner: {
+      // Corner: forward then sharp angle (placeholder - will be replaced)
+      points: [
+        { x: 0, y: 0 },
+        { x: 120, y: -140 },
+        { x: 200, y: -80 }
+      ],
+      style: 'solid',
+      lineBreakType: 'rigid',
+      color: 'black',
+      playerColor: 'red'
+    }
+  };
+
   const addStandardRoute = (routeType: 'slant' | 'post' | 'hitch' | 'corner') => {
-    const fieldContainer = document.querySelector('.bg-white.relative.overflow-hidden');
-    if (!fieldContainer) return;
+    // Get the default route data for this type
+    const routeData = defaultRouteData[routeType];
+    const playerColor = routeData.playerColor || 'red';
     
-    const rect = fieldContainer.getBoundingClientRect();
-    const fieldWidth = rect.width;
-    const fieldHeight = rect.height;
+    // Get default position for this player color
+    const defaultPosition = getDefaultPlayerPosition(playerColor);
+    const startX = defaultPosition.x;
+    const startY = defaultPosition.y;
     
-    // Calculate start position (far right for red player, at 50-yard line)
-    const startX = fieldWidth * 0.85; // Far right, same as red positioning
-    const startY = fieldHeight / 2;
-    
-    // Create red player at start position
+    // Create player at default position for their color
     const newPlayer: Player = {
       id: Date.now().toString(),
       x: startX,
       y: startY,
-      color: 'red',
+      color: playerColor,
       type: 'offense'
     };
     
-    // Define route points based on route type
-    let routePoints: { x: number; y: number }[] = [];
-    const routeLength = 200; // Base route length
-    
-    switch (routeType) {
-      case 'slant':
-        // Slant: short diagonal forward
-        routePoints = [
-          { x: startX, y: startY },
-          { x: startX + routeLength * 0.7, y: startY - routeLength * 0.6 }
-        ];
-        break;
-      case 'post':
-        // Post: forward then deep diagonal
-        routePoints = [
-          { x: startX, y: startY },
-          { x: startX + routeLength * 0.3, y: startY - routeLength * 0.5 },
-          { x: startX + routeLength * 0.9, y: startY - routeLength * 1.2 }
-        ];
-        break;
-      case 'hitch':
-        // Hitch: forward then back
-        routePoints = [
-          { x: startX, y: startY },
-          { x: startX + routeLength * 0.5, y: startY - routeLength * 0.4 },
-          { x: startX + routeLength * 0.5, y: startY - routeLength * 0.2 }
-        ];
-        break;
-      case 'corner':
-        // Corner: forward then sharp angle
-        routePoints = [
-          { x: startX, y: startY },
-          { x: startX + routeLength * 0.6, y: startY - routeLength * 0.7 },
-          { x: startX + routeLength, y: startY - routeLength * 0.4 }
-        ];
-        break;
-    }
+    // Scale and position the route points
+    // The default routes are normalized (relative to first point), so we need to:
+    // 1. Find the first point (starting position in normalized coordinates)
+    // 2. Calculate relative movements from the first point
+    // 3. Position them relative to the player's start position
+    const firstPoint = routeData.points[0];
+    const routePoints = routeData.points.map((point, index) => {
+      if (index === 0) {
+        // First point is at the player's position
+        return { x: startX, y: startY };
+      } else {
+        // Calculate relative movement from first point
+        const relativeX = point.x - firstPoint.x;
+        const relativeY = point.y - firstPoint.y;
+        return {
+          x: startX + relativeX,
+          y: startY + relativeY // y increases downward in canvas
+        };
+      }
+    });
     
     // Create route
     const newRoute: Route = {
       id: Date.now().toString(),
       points: routePoints,
-      style: 'solid',
-      lineBreakType: routeType === 'hitch' ? 'smooth' : 'rigid',
-      color: 'black',
-      showArrow: true // Standard routes always have arrows
+      style: routeData.style,
+      lineBreakType: routeData.lineBreakType,
+      color: routeData.color,
+      showArrow: routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none'
+    };
+    
+    // Add player and route
+    setPlayers([...players, newPlayer]);
+    setRoutes([...routes, newRoute]);
+    
+    // Associate route with player
+    const updatedAssociations = new Map(playerRouteAssociations);
+    updatedAssociations.set(newPlayer.id, [newRoute.id]);
+    setPlayerRouteAssociations(updatedAssociations);
+    
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  // Export route as JSON for making it a default route
+  const exportRouteAsDefault = (playerId: string) => {
+    const associatedRouteIds = playerRouteAssociations.get(playerId) || [];
+    if (associatedRouteIds.length === 0) {
+      alert('No route found for this player.');
+      return;
+    }
+    
+    // Get the first associated route
+    const routeId = associatedRouteIds[0];
+    const route = routes.find(r => r.id === routeId);
+    
+    if (!route) {
+      alert('Route not found.');
+      return;
+    }
+    
+    // Create exportable route data (normalized to start at 0,0 for easier use)
+    const minX = Math.min(...route.points.map(p => p.x));
+    const minY = Math.min(...route.points.map(p => p.y));
+    const normalizedPoints = route.points.map(p => ({
+      x: p.x - minX,
+      y: p.y - minY
+    }));
+    
+    const routeData = {
+      points: normalizedPoints,
+      style: route.style,
+      lineBreakType: route.lineBreakType,
+      color: route.color || 'black'
+    };
+    
+    // Copy to clipboard
+    const jsonString = JSON.stringify(routeData, null, 2);
+    navigator.clipboard.writeText(jsonString);
+    
+    // Also log to console for easy access
+    console.log('=== ROUTE DATA FOR DEFAULT QUICK ADD ===');
+    console.log(jsonString);
+    console.log('=== COPY THIS DATA ===');
+    
+    alert(`Route data copied to clipboard!\n\nAlso check the browser console (F12) to see the formatted JSON.\n\nYou can now use this to replace a default route.`);
+  };
+
+  // Export route data for button icon (scaled to fit 50x50 viewBox)
+  const exportRouteForButtonIcon = (playerId: string) => {
+    const associatedRouteIds = playerRouteAssociations.get(playerId) || [];
+    if (associatedRouteIds.length === 0) {
+      alert('No route found for this player.');
+      return;
+    }
+    
+    // Get the first associated route
+    const routeId = associatedRouteIds[0];
+    const route = routes.find(r => r.id === routeId);
+    
+    if (!route) {
+      alert('Route not found.');
+      return;
+    }
+    
+    // Normalize and scale route to fit 50x50 viewBox
+    const allX = route.points.map(p => p.x);
+    const allY = route.points.map(p => p.y);
+    const minX = Math.min(...allX);
+    const maxX = Math.max(...allX);
+    const minY = Math.min(...allY);
+    const maxY = Math.max(...allY);
+    const width = maxX - minX || 1;
+    const height = maxY - minY || 1;
+    
+    // Scale to fit in 50x50 with padding
+    const padding = 10;
+    const scaleX = (50 - padding * 2) / width;
+    const scaleY = (50 - padding * 2) / height;
+    const scale = Math.min(scaleX, scaleY);
+    
+    const offsetX = (50 - width * scale) / 2 - minX * scale;
+    const offsetY = (50 - height * scale) / 2 - minY * scale;
+    
+    const scaledPoints = route.points.map(p => ({
+      x: p.x * scale + offsetX,
+      y: p.y * scale + offsetY
+    }));
+    
+    const routeData = {
+      points: scaledPoints,
+      style: route.style,
+      lineBreakType: route.lineBreakType,
+      color: route.color || 'black'
+    };
+    
+    // Determine which button this should replace
+    const buttonKey = `${route.style}-${route.lineBreakType}`;
+    
+    // Copy to clipboard
+    const jsonString = JSON.stringify(routeData, null, 2);
+    navigator.clipboard.writeText(jsonString);
+    
+    // Also log to console for easy access
+    console.log('=== ROUTE DATA FOR BUTTON ICON ===');
+    console.log(`Button key: "${buttonKey}"`);
+    console.log(jsonString);
+    console.log('=== COPY THIS DATA ===');
+    
+    alert(`Route data for button icon copied to clipboard!\n\nButton key: "${buttonKey}"\n\nAlso check the browser console (F12) to see the formatted JSON.\n\nYou can now use this to replace a button icon.`);
+  };
+
+  // Copy route to quick adds section
+  const copyRouteToQuickAdds = (playerId: string) => {
+    const associatedRouteIds = playerRouteAssociations.get(playerId) || [];
+    if (associatedRouteIds.length === 0) return;
+    
+    // Get the first associated route
+    const routeId = associatedRouteIds[0];
+    const route = routes.find(r => r.id === routeId);
+    if (!route) return;
+    
+    // Get the player to find their color
+    const player = players.find(p => p.id === playerId);
+    const playerColor = player?.color || 'red';
+    
+    // Normalize the route points (make them relative to the first point)
+    // This ensures the route can be positioned correctly at any default position
+    const firstPoint = route.points[0];
+    const normalizedRoute: Route & { playerColor?: string } = {
+      ...route,
+      points: route.points.map((point, index) => {
+        if (index === 0) {
+          // First point stays at (0, 0) or relative to itself - actually keep it as is for now
+          // We'll normalize relative to first point
+          return { x: 0, y: 0 };
+        } else {
+          // Calculate relative position from first point
+          return {
+            x: point.x - firstPoint.x,
+            y: point.y - firstPoint.y
+          };
+        }
+      }),
+      playerColor
+    };
+    
+    // Find first empty slot (slots 4-7 are for custom routes, after the 4 standard ones)
+    const emptyIndex = customQuickAddRoutes.findIndex((r, idx) => idx >= 4 && r === null);
+    if (emptyIndex === -1) {
+      // No empty slot, replace the last custom slot (index 7)
+      const updated = [...customQuickAddRoutes];
+      updated[7] = normalizedRoute;
+      setCustomQuickAddRoutes(updated);
+    } else {
+      const updated = [...customQuickAddRoutes];
+      updated[emptyIndex] = normalizedRoute;
+      setCustomQuickAddRoutes(updated);
+    }
+    
+    setShowColorPicker(false);
+    setSelectedPlayerForColor(null);
+  };
+
+  // Add custom route from quick adds to canvas
+  const addCustomRouteFromQuickAdds = (routeIndex: number) => {
+    const customRoute = customQuickAddRoutes[routeIndex];
+    if (!customRoute) return;
+    
+    // Get the player color (default to 'red' if not stored)
+    const playerColor = customRoute.playerColor || 'red';
+    
+    // Get default position for this player color
+    const defaultPosition = getDefaultPlayerPosition(playerColor);
+    const startX = defaultPosition.x;
+    const startY = defaultPosition.y;
+    
+    // Create player at default position for their color
+    const newPlayer: Player = {
+      id: Date.now().toString(),
+      x: startX,
+      y: startY,
+      color: playerColor,
+      type: 'offense'
+    };
+    
+    // Route points are normalized (first point is at 0,0, others are relative)
+    // Position the route starting at the default position
+    const routePoints = customRoute.points.map((point, index) => {
+      if (index === 0) {
+        // First point is at the player's default position
+        return { x: startX, y: startY };
+      } else {
+        // Other points are relative to the first point
+        return {
+          x: startX + point.x,
+          y: startY + point.y
+        };
+      }
+    });
+    
+    // Create new route with translated points
+    const newRoute: Route = {
+      id: Date.now().toString(),
+      points: routePoints,
+      style: customRoute.style,
+      lineBreakType: customRoute.lineBreakType,
+      color: customRoute.color || 'black'
     };
     
     // Add player and route
@@ -793,6 +1435,42 @@ export default function Home() {
     ));
     setShowColorPicker(false);
     setSelectedPlayerForColor(null);
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  // Delete selected items
+  const deleteSelectedItems = () => {
+    // Delete selected players and their associated routes
+    const playersToDelete = selectedItems.players;
+    const routesToDelete = new Set([
+      ...selectedItems.routes,
+      ...Array.from(playerRouteAssociations.entries())
+        .filter(([playerId]) => playersToDelete.includes(playerId))
+        .flatMap(([, routeIds]) => routeIds)
+    ]);
+    
+    // Delete players
+    setPlayers(prev => prev.filter(p => !playersToDelete.includes(p.id)));
+    
+    // Delete routes
+    setRoutes(prev => prev.filter(r => !routesToDelete.has(r.id)));
+    
+    // Delete text boxes
+    setTextBoxes(prev => prev.filter(tb => !selectedItems.textBoxes.includes(tb.id)));
+    
+    // Delete circles
+    setCircles(prev => prev.filter(c => !selectedItems.circles.includes(c.id)));
+    
+    // Clean up player-route associations
+    setPlayerRouteAssociations(prev => {
+      const newMap = new Map(prev);
+      playersToDelete.forEach(playerId => newMap.delete(playerId));
+      return newMap;
+    });
+    
+    // Clear selection
+    setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [] });
+    
     setTimeout(() => saveToHistory(), 0);
   };
 
@@ -987,6 +1665,12 @@ export default function Home() {
   };
 
   const handleMouseUp = () => {
+    // Handle selection box completion first
+    if (isSelecting) {
+      handleCanvasMouseUp();
+      return;
+    }
+    
     // Check if we're over the trash can
     if (draggedElement && showTrashCan) {
       const trashCan = document.getElementById('trash-can');
@@ -1221,6 +1905,46 @@ export default function Home() {
     return { x: finalPoint.x, y: finalPoint.y };
   };
 
+  // Load user data from Firestore when user logs in
+  useEffect(() => {
+    if (user && !authLoading) {
+      setIsLoadingUserData(true);
+      loadUserData(user.uid)
+        .then((userData) => {
+          if (userData) {
+            // Update localStorage with cloud data (for compatibility)
+            localStorage.setItem('savedPlays', JSON.stringify(userData.savedPlays));
+            localStorage.setItem('playFolders', JSON.stringify(userData.folders));
+            setFolders(userData.folders);
+          }
+        })
+        .catch((error) => {
+          console.error('Error loading user data:', error);
+        })
+        .finally(() => {
+          setIsLoadingUserData(false);
+        });
+    } else if (!user && !authLoading) {
+      // User logged out - keep localStorage as is (for guest mode)
+    }
+  }, [user, authLoading]);
+
+  const syncToCloud = async (savedPlays: any[], folders: Folder[]) => {
+    if (user) {
+      try {
+        const userData: UserData = {
+          savedPlays,
+          folders,
+          updatedAt: new Date().toISOString()
+        };
+        await saveUserData(user.uid, userData);
+      } catch (error) {
+        console.error('Error syncing to cloud:', error);
+        // Don't throw - allow local save to continue
+      }
+    }
+  };
+
   const openSaveDialog = () => {
     if (players.length === 0) {
       alert('Please add some players before saving the play.');
@@ -1234,13 +1958,14 @@ export default function Home() {
     setFolders(savedFolders);
   };
 
-  const savePlay = () => {
+  const savePlay = async () => {
     if (!playName.trim()) {
       alert('Please enter a name for the play.');
       return;
     }
 
     const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+    const currentFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
     
     if (editingPlayId) {
       // Update existing play
@@ -1276,6 +2001,10 @@ export default function Home() {
       alert(`Play "${playName}" saved successfully!`);
     }
     
+    // Cloud-first: Save to Firestore if logged in, then localStorage
+    if (user) {
+      await syncToCloud(savedPlays, currentFolders);
+    }
     localStorage.setItem('savedPlays', JSON.stringify(savedPlays));
     
     // Trigger save animation if saving to a folder
@@ -1328,17 +2057,22 @@ export default function Home() {
     setEditingPlayId(null);
   };
 
-  const deleteFolder = (folderId: string) => {
+  const deleteFolder = async (folderId: string) => {
     // Remove folder from folders list
     const updatedFolders = folders.filter(f => f.id !== folderId);
     setFolders(updatedFolders);
-    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
     
     // Unassign plays from deleted folder
     const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
     const updatedPlays = savedPlays.map((play: { folderId?: string }) => 
       play.folderId === folderId ? { ...play, folderId: undefined } : play
     );
+    
+    // Cloud-first: Save to Firestore if logged in, then localStorage
+    if (user) {
+      await syncToCloud(updatedPlays, updatedFolders);
+    }
+    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
     localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
     
     setShowDeleteFolderConfirm(null);
@@ -2089,6 +2823,7 @@ export default function Home() {
             >
               My Plays
             </Link>
+            <UserMenu />
             </div>
             </div>
         </div>
@@ -2110,6 +2845,11 @@ export default function Home() {
                   };
                   const updatedFolders = [...folders, newFolder];
                   setFolders(updatedFolders);
+                  const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+                  // Cloud-first: Save to Firestore if logged in, then localStorage
+                  if (user) {
+                    syncToCloud(savedPlays, updatedFolders).catch(console.error);
+                  }
                   localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
                 }
               }}
@@ -2320,6 +3060,7 @@ export default function Home() {
           </div>
           {/* Routes */}
           {routes.map((route) => {
+            const isSelected = selectedItems.routes.includes(route.id);
             if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
             
             // Calculate arrow direction from the last significant movement segment
@@ -2352,8 +3093,9 @@ export default function Home() {
             return (
             <React.Fragment key={route.id}>
             <svg
+              data-route={route.id}
               className="absolute inset-0 w-full h-full pointer-events-none"
-              style={{ zIndex: 1 }}
+              style={{ zIndex: isSelected ? 2 : 1 }}
             >
                 {(route.lineBreakType === 'smooth' || route.lineBreakType === 'smooth-none') ? (
                   <path
@@ -2386,8 +3128,8 @@ export default function Home() {
                       }
                     })()}
                     fill="none"
-                    stroke={selectedRoute === route.id ? "red" : "black"}
-                    strokeWidth={selectedRoute === route.id ? "5" : "3"}
+                    stroke={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
+                    strokeWidth={isSelected ? "4" : selectedRoute === route.id ? "5" : "3"}
                     strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
                   />
                 ) : (
@@ -2420,9 +3162,9 @@ export default function Home() {
                     return route.points.map(p => `${p.x},${p.y}`).join(' ');
                   }
                 })()}
-                fill="none"
-                    stroke={selectedRoute === route.id ? "red" : "black"}
-                    strokeWidth={selectedRoute === route.id ? "5" : "3"}
+                  fill="none"
+                  stroke={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
+                  strokeWidth={isSelected ? "4" : selectedRoute === route.id ? "5" : "3"}
                 strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
               />
                 )}
@@ -2575,24 +3317,61 @@ export default function Home() {
             </svg>
           )}
 
+          {/* Selection Box */}
+          {selectionBox && (
+            <div
+              className="absolute border-2 border-blue-500 pointer-events-none"
+              style={{
+                left: `${Math.min(selectionBox.startX, selectionBox.endX)}px`,
+                top: `${Math.min(selectionBox.startY, selectionBox.endY)}px`,
+                width: `${Math.abs(selectionBox.endX - selectionBox.startX)}px`,
+                height: `${Math.abs(selectionBox.endY - selectionBox.startY)}px`,
+                backgroundColor: 'rgba(59, 130, 246, 0.1)', // Light blue with low opacity
+                zIndex: 1000
+              }}
+            />
+          )}
+
+          {/* Delete Selected Items Button */}
+          {(selectedItems.players.length > 0 || selectedItems.routes.length > 0 || selectedItems.textBoxes.length > 0 || selectedItems.circles.length > 0) && (
+            <div
+              className="absolute top-24 right-6 z-20"
+            >
+              <button
+                onClick={deleteSelectedItems}
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-colors"
+                title="Delete selected items"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Selected
+              </button>
+            </div>
+          )}
+
           {/* Players */}
           {[...players, ...defensivePlayers].map((player) => {
             const colorOption = player.type === 'defense' 
               ? { name: 'grey', color: 'bg-gray-500', label: 'D' }
               : colors.find(c => c.name === player.color);
             const animatedPosition = getAnimatedPlayerPosition(player);
+            const isSelected = selectedItems.players.includes(player.id);
             
             return (
               <div
                 key={player.id}
-                className={`absolute w-12 h-12 rounded-full ${colorOption?.color || 'bg-gray-500'} border-2 border-white transform -translate-x-1/2 -translate-y-1/2 ${
+                data-player={player.id}
+                className={`absolute w-12 h-12 rounded-full ${colorOption?.color || 'bg-gray-500'} border-4 transform -translate-x-1/2 -translate-y-1/2 ${
+                  isSelected ? 'border-blue-500 ring-4 ring-blue-300' : 'border-white'
+                } ${
                   mode === 'erase' && !isAnimating ? 'cursor-pointer' : 
                   !isAnimating ? 'cursor-move' : 'cursor-pointer'
                 } hover:scale-110 transition-transform flex items-center justify-center`}
                 style={{
                   left: animatedPosition.x,
                   top: animatedPosition.y,
-                  zIndex: 3,
+                  zIndex: isSelected ? 4 : 3,
                   transition: isAnimating ? 'none' : 'all 0.1s ease-out'
                 }}
                 onMouseDown={(e) => !isAnimating && handlePlayerMouseDown(e, player.id)}
@@ -2608,9 +3387,12 @@ export default function Home() {
           })}
 
           {/* Text Boxes */}
-          {textBoxes.map((textBox) => (
+          {textBoxes.map((textBox) => {
+            const isSelected = selectedItems.textBoxes.includes(textBox.id);
+            return (
             <div
               key={textBox.id}
+              data-textbox={textBox.id}
               className={`absolute transform -translate-x-1/2 -translate-y-1/2 ${
                 mode === 'erase' ? 'cursor-pointer' : 'cursor-move'
               }`}
@@ -2640,17 +3422,23 @@ export default function Home() {
                   autoFocus
                 />
               ) : (
-                <div className="bg-white bg-opacity-80 px-2 py-1 rounded border border-gray-300 shadow-sm">
+                <div className={`bg-white bg-opacity-80 px-2 py-1 rounded border-2 shadow-sm ${
+                  isSelected ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-300'
+                }`}>
                   {textBox.text}
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
 
           {/* Circles */}
-          {circles.map((circle) => (
+          {circles.map((circle) => {
+            const isSelected = selectedItems.circles.includes(circle.id);
+            return (
             <div
               key={circle.id}
+              data-circle={circle.id}
               className={`absolute transform -translate-x-1/2 -translate-y-1/2 ${
                 mode === 'erase' ? 'cursor-pointer' : 'cursor-move'
               }`}
@@ -2664,16 +3452,19 @@ export default function Home() {
               onMouseDown={(e) => handleCircleMouseDown(e, circle.id)}
             >
               <div
-                className="rounded-full"
+                className={`rounded-full ${
+                  isSelected ? 'ring-4 ring-blue-300' : ''
+                }`}
                 style={{
                   width: '100%',
                   height: '100%',
                   backgroundColor: circle.color,
-                  border: 'none'
+                  border: isSelected ? '3px solid blue' : 'none'
                 }}
               />
             </div>
-          ))}
+            );
+          })}
 
           {/* Trash Can */}
           {showTrashCan && (
@@ -2745,8 +3536,7 @@ export default function Home() {
                     title="Solid Line - Sharp Turns"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      <path d="M10 35 L20 35 L20 20 L30 20" stroke="black" strokeWidth="4" fill="none"/>
-                      <polygon points="30,20 25,15 25,25" fill="black"/>
+                      {renderRouteButtonIcon(routeButtonIcons['solid-rigid'])}
                     </svg>
                   </button>
                   <button
@@ -2762,8 +3552,7 @@ export default function Home() {
                     title="Solid Line - Curved Turns"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      <path d="M10 35 L20 35 Q25 35 25 30 Q25 25 30 20" stroke="black" strokeWidth="4" fill="none"/>
-                      <polygon points="30,20 25,15 25,25" fill="black"/>
+                      {renderRouteButtonIcon(routeButtonIcons['solid-smooth'])}
                     </svg>
                   </button>
                   <button
@@ -2779,8 +3568,7 @@ export default function Home() {
                     title="Dashed Line - Sharp Turns"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      <path d="M10 35 L20 35 L20 20 L30 20" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
-                      <polygon points="30,20 25,15 25,25" fill="black"/>
+                      {renderRouteButtonIcon(routeButtonIcons['dashed-rigid'])}
                     </svg>
                   </button>
                   <button
@@ -2796,8 +3584,7 @@ export default function Home() {
                     title="Dashed Line - Curved Turns"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      <path d="M10 35 L20 35 Q25 35 25 30 Q25 25 30 20" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
-                      <polygon points="30,20 25,15 25,25" fill="black"/>
+                      {renderRouteButtonIcon(routeButtonIcons['dashed-smooth'])}
                     </svg>
                   </button>
                   <button
@@ -2853,8 +3640,108 @@ export default function Home() {
               title="Slant Route"
             >
               <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-                <path d="M20 80 L50 60 L70 40" stroke="black" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                <polygon points="70,40 65,35 65,45" fill="black"/>
+                {(() => {
+                  const routeData = defaultRouteData.slant;
+                  // Normalize route points to fit in 0-100 viewBox
+                  const allX = routeData.points.map(p => p.x);
+                  const allY = routeData.points.map(p => p.y);
+                  const minX = Math.min(...allX);
+                  const maxX = Math.max(...allX);
+                  const minY = Math.min(...allY);
+                  const maxY = Math.max(...allY);
+                  const width = maxX - minX || 1;
+                  const height = maxY - minY || 1;
+                  const padding = 10;
+                  const scaleX = (100 - padding * 2) / width;
+                  const scaleY = (100 - padding * 2) / height;
+                  const scale = Math.min(scaleX, scaleY);
+                  const offsetX = (100 - width * scale) / 2 - minX * scale;
+                  const offsetY = (100 - height * scale) / 2 - minY * scale;
+                  
+                  const normalizedPoints = routeData.points.map(p => ({
+                    x: p.x * scale + offsetX,
+                    y: p.y * scale + offsetY
+                  }));
+                  
+                  // Check if we should show arrow and calculate stop point
+                  const shouldShowArrow = routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none';
+                  let pathPoints = normalizedPoints;
+                  
+                  if (shouldShowArrow && normalizedPoints.length >= 2) {
+                    const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                    const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                    const dx = lastPoint.x - secondLastPoint.x;
+                    const dy = lastPoint.y - secondLastPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    const arrowGap = 6;
+                    const stopDistance = Math.max(0, distance - arrowGap);
+                    const stopRatio = distance > 0 ? stopDistance / distance : 0;
+                    
+                    const arrowStopPoint = {
+                      x: secondLastPoint.x + dx * stopRatio,
+                      y: secondLastPoint.y + dy * stopRatio
+                    };
+                    
+                    pathPoints = normalizedPoints.slice(0, -1);
+                    pathPoints.push(arrowStopPoint);
+                  }
+                  
+                  return (
+                    <>
+                      <path
+                        d={(() => {
+                          if (routeData.lineBreakType === 'smooth' || routeData.lineBreakType === 'smooth-none') {
+                            if (pathPoints.length < 2) return '';
+                            if (pathPoints.length === 2) {
+                              return `M ${pathPoints[0].x} ${pathPoints[0].y} L ${pathPoints[1].x} ${pathPoints[1].y}`;
+                            }
+                            let path = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+                            for (let i = 1; i < pathPoints.length; i++) {
+                              if (i < pathPoints.length - 1) {
+                                const curr = pathPoints[i];
+                                const next = pathPoints[i + 1];
+                                const controlX = (curr.x + next.x) / 2;
+                                const controlY = (curr.y + next.y) / 2;
+                                path += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+                              } else {
+                                path += ` L ${pathPoints[i].x} ${pathPoints[i].y}`;
+                              }
+                            }
+                            return path;
+                          } else {
+                            return `M ${pathPoints.map(p => `${p.x},${p.y}`).join(' L ')}`;
+                          }
+                        })()}
+                        stroke="black"
+                        strokeWidth="2"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray={routeData.style === 'dashed' ? '4,2' : 'none'}
+                      />
+                      {shouldShowArrow && normalizedPoints.length >= 2 && (
+                        (() => {
+                          const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                          const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                          const dx = lastPoint.x - secondLastPoint.x;
+                          const dy = lastPoint.y - secondLastPoint.y;
+                          const angle = Math.atan2(dy, dx);
+                          const arrowLength = 8;
+                          const arrowWidth = 4;
+                          const arrowX = lastPoint.x - Math.cos(angle) * arrowLength;
+                          const arrowY = lastPoint.y - Math.sin(angle) * arrowLength;
+                          return (
+                            <polygon
+                              points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle - Math.PI / 2) * arrowWidth} ${arrowX - Math.cos(angle + Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle + Math.PI / 2) * arrowWidth}`}
+                              fill="black"
+                            />
+                          );
+                        })()
+                      )}
+                    </>
+                  );
+                })()}
               </svg>
             </button>
             
@@ -2865,8 +3752,108 @@ export default function Home() {
               title="Post Route"
             >
               <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-                <path d="M20 80 L40 60 L80 30" stroke="black" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                <polygon points="80,30 75,25 75,35" fill="black"/>
+                {(() => {
+                  const routeData = defaultRouteData.post;
+                  // Normalize route points to fit in 0-100 viewBox
+                  const allX = routeData.points.map(p => p.x);
+                  const allY = routeData.points.map(p => p.y);
+                  const minX = Math.min(...allX);
+                  const maxX = Math.max(...allX);
+                  const minY = Math.min(...allY);
+                  const maxY = Math.max(...allY);
+                  const width = maxX - minX || 1;
+                  const height = maxY - minY || 1;
+                  const padding = 10;
+                  const scaleX = (100 - padding * 2) / width;
+                  const scaleY = (100 - padding * 2) / height;
+                  const scale = Math.min(scaleX, scaleY);
+                  const offsetX = (100 - width * scale) / 2 - minX * scale;
+                  const offsetY = (100 - height * scale) / 2 - minY * scale;
+                  
+                  const normalizedPoints = routeData.points.map(p => ({
+                    x: p.x * scale + offsetX,
+                    y: p.y * scale + offsetY
+                  }));
+                  
+                  // Check if we should show arrow and calculate stop point
+                  const shouldShowArrow = routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none';
+                  let pathPoints = normalizedPoints;
+                  
+                  if (shouldShowArrow && normalizedPoints.length >= 2) {
+                    const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                    const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                    const dx = lastPoint.x - secondLastPoint.x;
+                    const dy = lastPoint.y - secondLastPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    const arrowGap = 6;
+                    const stopDistance = Math.max(0, distance - arrowGap);
+                    const stopRatio = distance > 0 ? stopDistance / distance : 0;
+                    
+                    const arrowStopPoint = {
+                      x: secondLastPoint.x + dx * stopRatio,
+                      y: secondLastPoint.y + dy * stopRatio
+                    };
+                    
+                    pathPoints = normalizedPoints.slice(0, -1);
+                    pathPoints.push(arrowStopPoint);
+                  }
+                  
+                  return (
+                    <>
+                      <path
+                        d={(() => {
+                          if (routeData.lineBreakType === 'smooth' || routeData.lineBreakType === 'smooth-none') {
+                            if (pathPoints.length < 2) return '';
+                            if (pathPoints.length === 2) {
+                              return `M ${pathPoints[0].x} ${pathPoints[0].y} L ${pathPoints[1].x} ${pathPoints[1].y}`;
+                            }
+                            let path = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+                            for (let i = 1; i < pathPoints.length; i++) {
+                              if (i < pathPoints.length - 1) {
+                                const curr = pathPoints[i];
+                                const next = pathPoints[i + 1];
+                                const controlX = (curr.x + next.x) / 2;
+                                const controlY = (curr.y + next.y) / 2;
+                                path += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+                              } else {
+                                path += ` L ${pathPoints[i].x} ${pathPoints[i].y}`;
+                              }
+                            }
+                            return path;
+                          } else {
+                            return `M ${pathPoints.map(p => `${p.x},${p.y}`).join(' L ')}`;
+                          }
+                        })()}
+                        stroke="black"
+                        strokeWidth="2"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray={routeData.style === 'dashed' ? '4,2' : 'none'}
+                      />
+                      {shouldShowArrow && normalizedPoints.length >= 2 && (
+                        (() => {
+                          const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                          const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                          const dx = lastPoint.x - secondLastPoint.x;
+                          const dy = lastPoint.y - secondLastPoint.y;
+                          const angle = Math.atan2(dy, dx);
+                          const arrowLength = 8;
+                          const arrowWidth = 4;
+                          const arrowX = lastPoint.x - Math.cos(angle) * arrowLength;
+                          const arrowY = lastPoint.y - Math.sin(angle) * arrowLength;
+                          return (
+                            <polygon
+                              points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle - Math.PI / 2) * arrowWidth} ${arrowX - Math.cos(angle + Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle + Math.PI / 2) * arrowWidth}`}
+                              fill="black"
+                            />
+                          );
+                        })()
+                      )}
+                    </>
+                  );
+                })()}
               </svg>
             </button>
             
@@ -2893,12 +3880,135 @@ export default function Home() {
               </svg>
             </button>
             
-            {/* Empty slots for future routes */}
-            {[...Array(4)].map((_, index) => (
-              <div
-                key={index}
-                className="border border-gray-300 bg-white"
-              />
+            {/* Custom route slots */}
+            {customQuickAddRoutes.slice(4, 8).map((customRoute, index) => (
+              <button
+                key={index + 4}
+                onClick={() => customRoute && addCustomRouteFromQuickAdds(index + 4)}
+                className={`border border-gray-300 bg-white hover:bg-gray-50 transition-colors cursor-pointer flex items-center justify-center aspect-square ${
+                  customRoute ? '' : 'opacity-50'
+                }`}
+                title={customRoute ? 'Click to add route' : 'Empty slot'}
+                disabled={!customRoute}
+              >
+                {customRoute ? (
+                  <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                    {customRoute.points.length >= 2 && (() => {
+                      // Normalize route points to fit in 0-100 viewBox
+                      const allX = customRoute.points.map(p => p.x);
+                      const allY = customRoute.points.map(p => p.y);
+                      const minX = Math.min(...allX);
+                      const maxX = Math.max(...allX);
+                      const minY = Math.min(...allY);
+                      const maxY = Math.max(...allY);
+                      const width = maxX - minX || 1;
+                      const height = maxY - minY || 1;
+                      const padding = 10;
+                      const scaleX = (100 - padding * 2) / width;
+                      const scaleY = (100 - padding * 2) / height;
+                      const scale = Math.min(scaleX, scaleY);
+                      const offsetX = (100 - width * scale) / 2 - minX * scale;
+                      const offsetY = (100 - height * scale) / 2 - minY * scale;
+                      
+                      const normalizedPoints = customRoute.points.map(p => ({
+                        x: p.x * scale + offsetX,
+                        y: p.y * scale + offsetY
+                      }));
+                      
+                      // Check if we should show arrow and calculate stop point
+                      const shouldShowArrow = customRoute.lineBreakType !== 'none' && customRoute.lineBreakType !== 'smooth-none';
+                      let pathPoints = normalizedPoints;
+                      let arrowStopPoint = normalizedPoints[normalizedPoints.length - 1];
+                      
+                      if (shouldShowArrow && normalizedPoints.length >= 2) {
+                        const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                        const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                        const dx = lastPoint.x - secondLastPoint.x;
+                        const dy = lastPoint.y - secondLastPoint.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Stop the line before the arrow (scaled for 100x100 viewBox)
+                        const arrowGap = 6; // Gap before arrow in viewBox units
+                        const stopDistance = Math.max(0, distance - arrowGap);
+                        const stopRatio = distance > 0 ? stopDistance / distance : 0;
+                        
+                        arrowStopPoint = {
+                          x: secondLastPoint.x + dx * stopRatio,
+                          y: secondLastPoint.y + dy * stopRatio
+                        };
+                        
+                        // Create path points with shortened last segment
+                        pathPoints = normalizedPoints.slice(0, -1);
+                        pathPoints.push(arrowStopPoint);
+                      }
+                      
+                      return (
+                        <>
+                          <path
+                            d={(() => {
+                              if (customRoute.lineBreakType === 'smooth' || customRoute.lineBreakType === 'smooth-none') {
+                                // Generate smooth path
+                                if (pathPoints.length < 2) return '';
+                                if (pathPoints.length === 2) {
+                                  return `M ${pathPoints[0].x} ${pathPoints[0].y} L ${pathPoints[1].x} ${pathPoints[1].y}`;
+                                }
+                                let path = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+                                for (let i = 1; i < pathPoints.length; i++) {
+                                  if (i < pathPoints.length - 1) {
+                                    const curr = pathPoints[i];
+                                    const next = pathPoints[i + 1];
+                                    const controlX = (curr.x + next.x) / 2;
+                                    const controlY = (curr.y + next.y) / 2;
+                                    path += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+                                  } else {
+                                    path += ` L ${pathPoints[i].x} ${pathPoints[i].y}`;
+                                  }
+                                }
+                                return path;
+                              } else {
+                                // Generate polyline path
+                                return `M ${pathPoints.map(p => `${p.x},${p.y}`).join(' L ')}`;
+                              }
+                            })()}
+                            stroke="black"
+                            strokeWidth="2"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeDasharray={customRoute.style === 'dashed' ? '4,2' : 'none'}
+                          />
+                          {/* Arrow at the end if not 'none' or 'smooth-none' */}
+                          {shouldShowArrow && normalizedPoints.length >= 2 && (
+                            (() => {
+                              const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                              const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                              // Calculate angle from second-to-last to last point (direction of travel)
+                              const dx = lastPoint.x - secondLastPoint.x;
+                              const dy = lastPoint.y - secondLastPoint.y;
+                              const angle = Math.atan2(dy, dx);
+                              // Arrow size scaled to viewBox (100x100)
+                              const arrowLength = 8;
+                              const arrowWidth = 4;
+                              const arrowX = lastPoint.x - Math.cos(angle) * arrowLength;
+                              const arrowY = lastPoint.y - Math.sin(angle) * arrowLength;
+                              return (
+                                <polygon
+                                  points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle - Math.PI / 2) * arrowWidth} ${arrowX - Math.cos(angle + Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle + Math.PI / 2) * arrowWidth}`}
+                                  fill="black"
+                                />
+                              );
+                            })()
+                          )}
+                        </>
+                      );
+                    })()}
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                )}
+              </button>
             ))}
           </div>
         </div>
@@ -2941,6 +4051,50 @@ export default function Home() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
+            {/* Add to Quick Adds Button - Show only if player has a route */}
+            {selectedPlayerForColor && (playerRouteAssociations.get(selectedPlayerForColor) || []).length > 0 && (
+              <>
+                <button
+                  onClick={() => {
+                    if (selectedPlayerForColor) {
+                      copyRouteToQuickAdds(selectedPlayerForColor);
+                    }
+                  }}
+                  className="w-10 h-10 rounded-full bg-green-500 border-2 border-green-600 hover:bg-green-600 hover:scale-110 transition-transform flex items-center justify-center"
+                  title="Add route to quick adds"
+                >
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedPlayerForColor) {
+                      exportRouteAsDefault(selectedPlayerForColor);
+                    }
+                  }}
+                  className="w-10 h-10 rounded-full bg-blue-500 border-2 border-blue-600 hover:bg-blue-600 hover:scale-110 transition-transform flex items-center justify-center"
+                  title="Export route data for default quick add"
+                >
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedPlayerForColor) {
+                      exportRouteForButtonIcon(selectedPlayerForColor);
+                    }
+                  }}
+                  className="w-10 h-10 rounded-full bg-purple-500 border-2 border-purple-600 hover:bg-purple-600 hover:scale-110 transition-transform flex items-center justify-center"
+                  title="Export route data for button icon (bottom menu)"
+                >
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3030,6 +4184,11 @@ export default function Home() {
                             };
                             const updatedFolders = [...folders, newFolder];
                             setFolders(updatedFolders);
+                            const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+                            // Cloud-first: Save to Firestore if logged in, then localStorage
+                            if (user) {
+                              syncToCloud(savedPlays, updatedFolders).catch(console.error);
+                            }
                             localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
                             setSelectedFolder(newFolder.id);
                             setNewFolderName('');
@@ -3051,6 +4210,11 @@ export default function Home() {
                           };
                           const updatedFolders = [...folders, newFolder];
                           setFolders(updatedFolders);
+                          const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+                          // Cloud-first: Save to Firestore if logged in, then localStorage
+                          if (user) {
+                            syncToCloud(savedPlays, updatedFolders).catch(console.error);
+                          }
                           localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
                           setSelectedFolder(newFolder.id);
                           setNewFolderName('');
