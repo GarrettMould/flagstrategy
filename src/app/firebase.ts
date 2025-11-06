@@ -151,12 +151,12 @@ export async function createShareableLink(folderId: string, folderName: string, 
     
     const shareId = `share_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     
-    // Store plays as JSON string (simpler and more reliable than converting arrays)
+    // Store plays directly as array (Firestore handles arrays natively)
     const sharedFolder = {
       shareId,
       folderId,
       folderName,
-      playsJson: JSON.stringify(plays), // Store as JSON string instead of trying to convert arrays
+      plays: plays, // Store as array directly - same structure as localStorage
       createdAt: new Date().toISOString()
     };
     
@@ -220,17 +220,20 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = docSnap.data() as any;
       
-      // Parse plays from JSON string
+      // Get plays directly from Firestore (stored as array)
       let plays: SavedPlay[] = [];
-      if (data.playsJson) {
+      if (data.plays) {
+        // Firestore returns arrays directly, but ensure it's actually an array
+        plays = Array.isArray(data.plays) ? data.plays : [];
+        console.log('Successfully fetched', plays.length, 'plays from Firestore');
+      } else if (data.playsJson) {
+        // Fallback: support old format with JSON string (for backwards compatibility)
         try {
           const parsed = JSON.parse(data.playsJson);
-          // Ensure parsed result is an array
           plays = Array.isArray(parsed) ? parsed : [];
-          console.log('Successfully parsed', plays.length, 'plays from JSON');
+          console.log('Successfully parsed', plays.length, 'plays from JSON (legacy format)');
         } catch (parseError) {
           console.error('Error parsing playsJson:', parseError);
-          // If parsing fails, return empty array rather than failing entirely
           plays = [];
         }
       }
@@ -244,7 +247,7 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
       const convertedData: SharedFolder = {
         shareId: data.shareId || shareId,
         folderId: data.folderId || '',
-        folderName: data.folderName || 'Test Folder',
+        folderName: data.folderName || 'Shared Folder',
         plays: plays,
         createdAt: data.createdAt || new Date().toISOString(),
         expiresAt: data.expiresAt

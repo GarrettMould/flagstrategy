@@ -2172,17 +2172,24 @@ export default function Home() {
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          // Get all plays in this folder
+                          // Get all plays in this folder (same as save feature)
                           const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
                           const folderPlays = savedPlays.filter((play: { folderId?: string }) => play.folderId === folder.id);
                           
+                          if (folderPlays.length === 0) {
+                            alert('This folder is empty. Add some plays before sharing.');
+                            setOpenFolderMenu(null);
+                            return;
+                          }
+                          
                           try {
+                            // Use Firebase to create shareable link (stores plays array directly)
                             const { createShareableLink } = await import('./firebase');
-                            const shareLink = await createShareableLink(folder.id, folder.name, folderPlays);
+                            const shareUrl = await createShareableLink(folder.id, folder.name, folderPlays);
                             
                             // Copy to clipboard
-                            navigator.clipboard.writeText(shareLink);
-                            alert(`Share link copied to clipboard!\n\n${shareLink}`);
+                            navigator.clipboard.writeText(shareUrl);
+                            alert(`Share link copied to clipboard!\n\n${shareUrl}`);
                             setOpenFolderMenu(null);
                           } catch (error) {
                             console.error('Error creating share link:', error);
