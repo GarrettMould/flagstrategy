@@ -5,6 +5,7 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 export interface SavedPlay {
   id: string;
   name: string;
+  folderId?: string;
   players: Array<{
     id: string;
     x: number;
@@ -33,6 +34,9 @@ export interface SavedPlay {
     radius: number;
     color: string;
   }>;
+  playerRouteAssociations?: [string, string[]][];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Firebase configuration

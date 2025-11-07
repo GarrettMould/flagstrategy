@@ -40,6 +40,13 @@ interface Circle {
   color: string;
 }
 
+interface Football {
+  id: string;
+  x: number;
+  y: number;
+  size: number;
+}
+
 interface Folder {
   id: string;
   name: string;
@@ -133,8 +140,7 @@ export default function Home() {
   const [alertMessage, setAlertMessage] = useState<string>('');
   const [lastMouseMoveTime, setLastMouseMoveTime] = useState<number>(0);
   const [pauseThreshold] = useState<number>(500); // milliseconds to detect pause
-  const [showTrashCan, setShowTrashCan] = useState<boolean>(false);
-  const [draggedElement, setDraggedElement] = useState<{ type: 'player' | 'route' | 'textbox' | 'circle', id: string } | null>(null);
+  const [draggedElement, setDraggedElement] = useState<{ type: 'player' | 'route' | 'textbox' | 'circle' | 'football', id: string } | null>(null);
   const [playerRouteAssociations, setPlayerRouteAssociations] = useState<Map<string, string[]>>(new Map());
   const [defensiveFormation, setDefensiveFormation] = useState<'zone' | null>(null);
   const [defensivePlayers, setDefensivePlayers] = useState<Player[]>([]);
@@ -147,11 +153,13 @@ export default function Home() {
   const [editingTextBox, setEditingTextBox] = useState<string | null>(null);
   const [circles, setCircles] = useState<Circle[]>([]);
   const [draggedCircle, setDraggedCircle] = useState<string | null>(null);
+  const [footballs, setFootballs] = useState<Football[]>([]);
+  const [draggedFootball, setDraggedFootball] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
   const [selectedPlayerForColor, setSelectedPlayerForColor] = useState<string | null>(null);
   const [colorPickerPosition, setColorPickerPosition] = useState<{ x: number; y: number } | null>(null);
   const [hasDragged, setHasDragged] = useState<boolean>(false);
-  const [history, setHistory] = useState<{ players: Player[], routes: Route[], textBoxes: TextBox[], circles: Circle[], playerRouteAssociations: Map<string, string[]> }[]>([]);
+  const [history, setHistory] = useState<{ players: Player[], routes: Route[], textBoxes: TextBox[], circles: Circle[], footballs: Football[], playerRouteAssociations: Map<string, string[]> }[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [saveAnimation, setSaveAnimation] = useState<{ active: boolean; folderId: string | null; startX: number; startY: number; endX: number; endY: number } | null>(null);
   // Store custom routes with their associated player color
@@ -163,7 +171,8 @@ export default function Home() {
     routes: string[];
     textBoxes: string[];
     circles: string[];
-  }>({ players: [], routes: [], textBoxes: [], circles: [] });
+    footballs: string[];
+  }>({ players: [], routes: [], textBoxes: [], circles: [], footballs: [] });
   const [showDownloadDropdown, setShowDownloadDropdown] = useState<boolean>(false);
   const [openFolderMenu, setOpenFolderMenu] = useState<string | null>(null);
   const [showDeleteFolderConfirm, setShowDeleteFolderConfirm] = useState<string | null>(null);
@@ -197,6 +206,7 @@ export default function Home() {
         routes: [...routes],
         textBoxes: [...textBoxes],
         circles: [...circles],
+        footballs: [...footballs],
         playerRouteAssociations: new Map(playerRouteAssociations)
       };
       
@@ -396,6 +406,7 @@ export default function Home() {
       setRoutes(loadedRoutes);
       setTextBoxes(play.textBoxes || []);
       setCircles(play.circles || []);
+      setFootballs(play.footballs || []);
       setPlayName(play.name);
       setSelectedFolder(play.folderId || '');
       setEditingPlayId(play.id);
@@ -464,7 +475,6 @@ export default function Home() {
     // Deselect route if clicking on empty space
       setSelectedRoute(null);
       setDraggedElement(null);
-      setShowTrashCan(false);
     
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -484,7 +494,7 @@ export default function Home() {
         // Start selection box
         setIsSelecting(true);
         setSelectionBox({ startX: x, startY: y, endX: x, endY: y });
-        setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [] });
+        setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [], footballs: [] });
       }
       return;
     }
@@ -630,7 +640,16 @@ export default function Home() {
       players: selectedPlayers,
       routes: selectedRoutes,
       textBoxes: selectedTextBoxes,
-      circles: selectedCircles
+      circles: selectedCircles,
+      footballs: footballs.filter(f => {
+        // Check if football overlaps with selection box
+        const footballLeft = f.x - f.size / 2;
+        const footballRight = f.x + f.size / 2;
+        const footballTop = f.y - f.size / 2;
+        const footballBottom = f.y + f.size / 2;
+        
+        return !(footballRight < minX || footballLeft > maxX || footballBottom < minY || footballTop > maxY);
+      }).map(f => f.id)
     };
   };
 
@@ -752,6 +771,22 @@ export default function Home() {
     };
     
     setCircles([...circles, newCircle]);
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  const addFootballToCanvas = () => {
+    // Calculate middle of field
+    const fieldWidth = window.innerWidth * 0.75 * 0.6;
+    const fieldHeight = fieldWidth / 0.92; // Height based on aspect ratio (slightly taller than wide)
+    
+    const newFootball: Football = {
+      id: Date.now().toString(),
+      x: fieldWidth / 2,
+      y: fieldHeight / 2,
+      size: 20 // Size of the football icon
+    };
+    
+    setFootballs([...footballs, newFootball]);
     setTimeout(() => saveToHistory(), 0);
   };
 
@@ -1414,7 +1449,6 @@ export default function Home() {
       e.stopPropagation();
       setDraggedTextBox(textBoxId);
       setDraggedElement({ type: 'textbox', id: textBoxId });
-      setShowTrashCan(true);
       
       const rect = e.currentTarget.getBoundingClientRect();
       setDragOffset({
@@ -1466,6 +1500,7 @@ export default function Home() {
     
     // Delete circles
     setCircles(prev => prev.filter(c => !selectedItems.circles.includes(c.id)));
+    setFootballs(prev => prev.filter(f => !(selectedItems.footballs || []).includes(f.id)));
     
     // Clean up player-route associations
     setPlayerRouteAssociations(prev => {
@@ -1475,7 +1510,7 @@ export default function Home() {
     });
     
     // Clear selection
-    setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [] });
+    setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [], footballs: [] });
     
     setTimeout(() => saveToHistory(), 0);
   };
@@ -1532,12 +1567,29 @@ export default function Home() {
       e.stopPropagation();
       setDraggedCircle(circleId);
       setDraggedElement({ type: 'circle', id: circleId });
-      setShowTrashCan(true);
       
       const rect = e.currentTarget.getBoundingClientRect();
       setDragOffset({
         x: e.clientX - rect.left - 8,
         y: e.clientY - rect.top - 8
+      });
+    }
+  };
+
+  const handleFootballMouseDown = (e: React.MouseEvent<HTMLDivElement>, footballId: string) => {
+    if (mode === 'erase') {
+      e.stopPropagation();
+      setFootballs(prev => prev.filter(f => f.id !== footballId));
+      setTimeout(() => saveToHistory(), 0);
+    } else {
+      e.stopPropagation();
+      setDraggedFootball(footballId);
+      setDraggedElement({ type: 'football', id: footballId });
+      
+      const rect = e.currentTarget.getBoundingClientRect();
+      setDragOffset({
+        x: e.clientX - rect.left - 10,
+        y: e.clientY - rect.top - 10
       });
     }
   };
@@ -1567,7 +1619,6 @@ export default function Home() {
       setHasDragged(false); // Reset drag flag
       setDraggedPlayer(playerId);
       setDraggedElement({ type: 'player', id: playerId });
-      setShowTrashCan(true);
       
       // Store original position for route movement calculation
       const player = players.find(p => p.id === playerId);
@@ -1664,6 +1715,18 @@ export default function Home() {
             : circle
         )
       );
+    } else if (draggedFootball) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left - dragOffset.x;
+      const y = e.clientY - rect.top - dragOffset.y;
+      
+      setFootballs(prevFootballs => 
+        prevFootballs.map(football => 
+          football.id === draggedFootball 
+            ? { ...football, x, y }
+            : football
+        )
+      );
     } else {
       // Handle route drawing mouse move only if not dragging
     handleCanvasMouseMove(e);
@@ -1677,59 +1740,17 @@ export default function Home() {
       return;
     }
     
-    // Check if we're over the trash can
-    if (draggedElement && showTrashCan) {
-      const trashCan = document.getElementById('trash-can');
-      if (trashCan) {
-        const rect = trashCan.getBoundingClientRect();
-        const mouseX = window.event ? (window.event as MouseEvent).clientX : 0;
-        const mouseY = window.event ? (window.event as MouseEvent).clientY : 0;
-        
-        if (mouseX >= rect.left && mouseX <= rect.right && mouseY >= rect.top && mouseY <= rect.bottom) {
-          // Delete the element
-          if (draggedElement.type === 'player') {
-            setPlayers(prev => prev.filter(p => p.id !== draggedElement.id));
-            // Clean up the association (but don't delete the route)
-            setPlayerRouteAssociations(prev => {
-              const newMap = new Map(prev);
-              newMap.delete(draggedElement.id);
-              return newMap;
-            });
-          } else if (draggedElement.type === 'route') {
-            setRoutes(prev => prev.filter(r => r.id !== draggedElement.id));
-            // Clean up the association
-            setPlayerRouteAssociations(prev => {
-              const newMap = new Map(prev);
-              for (const [playerId, routeIds] of newMap.entries()) {
-                const filteredRouteIds = routeIds.filter(routeId => routeId !== draggedElement.id);
-                if (filteredRouteIds.length === 0) {
-                  newMap.delete(playerId);
-                } else {
-                  newMap.set(playerId, filteredRouteIds);
-                }
-              }
-              return newMap;
-            });
-          } else if (draggedElement.type === 'textbox') {
-            setTextBoxes(prev => prev.filter(tb => tb.id !== draggedElement.id));
-          } else if (draggedElement.type === 'circle') {
-            setCircles(prev => prev.filter(c => c.id !== draggedElement.id));
-          }
-        }
-      }
-    }
-    
     setDraggedPlayer(null);
     setDraggedTextBox(null);
     setDraggedCircle(null);
+    setDraggedFootball(null);
     setDraggedElement(null);
     setOriginalPlayerPosition(null);
     setOriginalPlayerRoutePositions(new Map());
     setSelectedRoute(null);
-    setShowTrashCan(false);
     
-    // Save state after moving if a player, text box, or circle was dragged (use setTimeout to ensure state is updated)
-    if (draggedPlayer || draggedTextBox || draggedCircle) {
+    // Save state after moving if a player, text box, circle, or football was dragged (use setTimeout to ensure state is updated)
+    if (draggedPlayer || draggedTextBox || draggedCircle || draggedFootball) {
       setTimeout(() => saveToHistory(), 0);
     }
     
@@ -1748,15 +1769,16 @@ export default function Home() {
     setRoutes([]);
     setTextBoxes([]);
     setCircles([]);
+    setFootballs([]);
     setCurrentRoute([]);
     setIsDrawingRoute(false);
     setIsAnimating(false);
     setAnimationProgress(0);
     setLastMouseMoveTime(0);
-    setShowTrashCan(false);
     setDraggedElement(null);
     setDraggedTextBox(null);
     setDraggedCircle(null);
+    setDraggedFootball(null);
     setEditingTextBox(null);
     setPlayerRouteAssociations(new Map());
     setDefensiveFormation(null);
@@ -1938,12 +1960,32 @@ export default function Home() {
   const syncToCloud = async (savedPlays: SavedPlay[], folders: Folder[]) => {
     if (user) {
       try {
+        // Load existing data from Firebase to merge properly
+        const existingData = await loadUserData(user.uid);
+        let mergedPlays = savedPlays;
+        
+        if (existingData && existingData.savedPlays.length > 0) {
+          // Merge plays: keep existing plays that aren't in local, update/keep local plays
+          const existingPlayIds = new Set(existingData.savedPlays.map(p => p.id));
+          const localPlayIds = new Set(savedPlays.map(p => p.id));
+          
+          // Keep existing plays that aren't in local array
+          const playsToKeep = existingData.savedPlays.filter(p => !localPlayIds.has(p.id));
+          
+          // Merge: combine kept plays with local plays
+          mergedPlays = [...playsToKeep, ...savedPlays];
+        }
+        
         const userData: UserData = {
-          savedPlays,
+          savedPlays: mergedPlays,
           folders,
           updatedAt: new Date().toISOString()
         };
+        // Debug: Verify folderId is in the data before saving
+        const playsWithFolders = mergedPlays.filter(p => p.folderId);
+        console.log('Saving to Firebase - Total plays:', mergedPlays.length, 'Plays with folders:', playsWithFolders.length);
         await saveUserData(user.uid, userData);
+        console.log('Successfully saved to Firebase');
       } catch (error) {
         console.error('Error syncing to cloud:', error);
         // Don't throw - allow local save to continue
@@ -1985,6 +2027,7 @@ export default function Home() {
           routes: routes,
           textBoxes: textBoxes,
           circles: circles,
+          footballs: footballs,
           playerRouteAssociations: Array.from(playerRouteAssociations.entries()),
           updatedAt: new Date().toISOString()
         };
@@ -2009,6 +2052,12 @@ export default function Home() {
     
     // Cloud-first: Save to Firestore if logged in, then localStorage
     if (user) {
+      // Debug: Log plays with folderId before syncing
+      const playsWithFolders = savedPlays.filter(p => p.folderId);
+      console.log('Syncing to cloud - Total plays:', savedPlays.length, 'Plays with folders:', playsWithFolders.length);
+      if (playsWithFolders.length > 0) {
+        console.log('Plays with folderId:', playsWithFolders.map(p => ({ id: p.id, name: p.name, folderId: p.folderId })));
+      }
       await syncToCloud(savedPlays, currentFolders);
     }
     localStorage.setItem('savedPlays', JSON.stringify(savedPlays));
@@ -2386,12 +2435,12 @@ export default function Home() {
       const size = baseSize * scale;
 
       // Create GIF with high quality
+      // Use workers: 0 to avoid CORS issues with worker script from CDN
       const gif = new GIF({
-        workers: 2,
+        workers: 0, // Disable workers to avoid CORS issues
         quality: 10,
         width: size,
         height: size,
-        workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js',
         repeat: 0 // Loop forever
       });
 
@@ -2456,59 +2505,57 @@ export default function Home() {
           ctx.stroke();
         }
 
-        // Draw players at animated positions
+        // Draw players at animated positions - use same logic as getAnimatedPlayerPosition
         const animatedPlayers = players.map(player => {
-          if (player.type === 'offense') {
-            // Find route for this player
-            const associatedRouteIds = playerRouteAssociations.get(player.id) || [];
-            const route = routes.find(r => associatedRouteIds.includes(r.id));
-            if (route && route.points.length >= 2) {
-              const routeDistance = route.points.reduce((total, point, index) => {
-                if (index === 0) return 0;
-                const dx = point.x - route.points[index - 1].x;
-                const dy = point.y - route.points[index - 1].y;
-                return total + Math.sqrt(dx * dx + dy * dy);
-              }, 0);
-
-              const currentDistance = routeDistance * progress;
-              let accumulated = 0;
-              for (let i = 1; i < route.points.length; i++) {
-                const segmentDistance = Math.sqrt(
-                  Math.pow(route.points[i].x - route.points[i - 1].x, 2) +
-                  Math.pow(route.points[i].y - route.points[i - 1].y, 2)
-                );
-                if (accumulated + segmentDistance >= currentDistance) {
-                  const segmentProgress = (currentDistance - accumulated) / segmentDistance;
-                  const x = route.points[i - 1].x + (route.points[i].x - route.points[i - 1].x) * segmentProgress;
-                  const y = route.points[i - 1].y + (route.points[i].y - route.points[i - 1].y) * segmentProgress;
-                  return { ...player, x, y };
-                }
-                accumulated += segmentDistance;
-              }
-            }
-          }
-          return player;
-        });
-
-        // Draw defensive players (move towards nearest offensive player at animated positions)
-        animatedPlayers.forEach(player => {
-          let x = (player.x / rect.width) * baseSize;
-          let y = (player.y / rect.height) * baseSize;
-          
-          // Handle defensive player animation
+          // Handle defensive players (zone coverage only)
           if (player.type === 'defense') {
-            const offensivePlayers = animatedPlayers.filter(p => p.type === 'offense');
+            // Zone: Move towards nearest offensive player
+            const offensivePlayers = players.filter(p => p.type === 'offense');
             let nearestPlayer: Player | null = null;
             let nearestDistance = Infinity;
             
             for (const offensivePlayer of offensivePlayers) {
+              // Calculate offensive player's animated position
+              const associatedRouteIds = playerRouteAssociations.get(offensivePlayer.id) || [];
+              const route = routes.find(r => 
+                associatedRouteIds.includes(r.id) && r.lineBreakType !== 'none' && r.lineBreakType !== 'smooth-none'
+              );
+              
+              let offensiveX = offensivePlayer.x;
+              let offensiveY = offensivePlayer.y;
+              
+              if (route && route.points.length >= 2) {
+                let totalDistance = 0;
+                for (let i = 1; i < route.points.length; i++) {
+                  const dx = route.points[i].x - route.points[i - 1].x;
+                  const dy = route.points[i].y - route.points[i - 1].y;
+                  totalDistance += Math.sqrt(dx * dx + dy * dy);
+                }
+                
+                const currentDistance = totalDistance * progress;
+                let accumulatedDistance = 0;
+                for (let i = 1; i < route.points.length; i++) {
+                  const dx = route.points[i].x - route.points[i - 1].x;
+                  const dy = route.points[i].y - route.points[i - 1].y;
+                  const segmentDistance = Math.sqrt(dx * dx + dy * dy);
+                  
+                  if (currentDistance <= accumulatedDistance + segmentDistance) {
+                    const segmentProgress = (currentDistance - accumulatedDistance) / segmentDistance;
+                    offensiveX = route.points[i - 1].x + (route.points[i].x - route.points[i - 1].x) * segmentProgress;
+                    offensiveY = route.points[i - 1].y + (route.points[i].y - route.points[i - 1].y) * segmentProgress;
+                    break;
+                  }
+                  accumulatedDistance += segmentDistance;
+                }
+              }
+              
               const distance = Math.sqrt(
-                Math.pow(offensivePlayer.x - player.x, 2) + 
-                Math.pow(offensivePlayer.y - player.y, 2)
+                Math.pow(offensiveX - player.x, 2) + 
+                Math.pow(offensiveY - player.y, 2)
               );
               if (distance < nearestDistance) {
                 nearestDistance = distance;
-                nearestPlayer = offensivePlayer;
+                nearestPlayer = { ...offensivePlayer, x: offensiveX, y: offensiveY };
               }
             }
             
@@ -2516,16 +2563,66 @@ export default function Home() {
               const dx = nearestPlayer.x - player.x;
               const dy = nearestPlayer.y - player.y;
               const distance = Math.sqrt(dx * dx + dy * dy);
-              const moveDistance = Math.min(distance * progress, distance * 0.7); // Move 70% of the way
+              const moveDistance = Math.min(distance * progress * 0.7, distance * 0.7);
               if (distance > 0) {
-                x = ((player.x + (dx / distance) * moveDistance) / rect.width) * baseSize;
-                y = ((player.y + (dy / distance) * moveDistance) / rect.height) * baseSize;
+                return { ...player, x: player.x + (dx / distance) * moveDistance, y: player.y + (dy / distance) * moveDistance };
               }
             }
-          } else {
-            x = (player.x / rect.width) * baseSize;
-            y = (player.y / rect.height) * baseSize;
+            return player;
           }
+          
+          // Handle offensive players
+          const associatedRouteIds = playerRouteAssociations.get(player.id) || [];
+          const route = routes.find(r => 
+            associatedRouteIds.includes(r.id) && r.lineBreakType !== 'none' && r.lineBreakType !== 'smooth-none'
+          );
+          
+          if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) {
+            return player;
+          }
+          
+          // Calculate total distance of the entire route
+          let totalDistance = 0;
+          for (let i = 1; i < route.points.length; i++) {
+            const dx = route.points[i].x - route.points[i - 1].x;
+            const dy = route.points[i].y - route.points[i - 1].y;
+            totalDistance += Math.sqrt(dx * dx + dy * dy);
+          }
+          
+          // Calculate current distance based on animation progress
+          const currentDistance = progress * totalDistance;
+          
+          // Find which segment we're currently in
+          let accumulatedDistance = 0;
+          for (let i = 1; i < route.points.length; i++) {
+            const dx = route.points[i].x - route.points[i - 1].x;
+            const dy = route.points[i].y - route.points[i - 1].y;
+            const segmentDistance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (currentDistance <= accumulatedDistance + segmentDistance) {
+              // We're in this segment
+              const segmentProgress = (currentDistance - accumulatedDistance) / segmentDistance;
+              const currentPoint = route.points[i - 1];
+              const nextPoint = route.points[i];
+              
+              const x = currentPoint.x + (nextPoint.x - currentPoint.x) * segmentProgress;
+              const y = currentPoint.y + (nextPoint.y - currentPoint.y) * segmentProgress;
+              
+              return { ...player, x, y };
+            }
+            
+            accumulatedDistance += segmentDistance;
+          }
+          
+          // Animation complete, use final position
+          const finalPoint = route.points[route.points.length - 1];
+          return { ...player, x: finalPoint.x, y: finalPoint.y };
+        });
+
+        // Draw all players at their animated positions
+        animatedPlayers.forEach(player => {
+          const x = (player.x / rect.width) * baseSize;
+          const y = (player.y / rect.height) * baseSize;
           
           const radius = baseSize * 0.015;
           ctx.fillStyle = player.color === 'blue' ? '#3b82f6' :
@@ -2874,6 +2971,17 @@ export default function Home() {
                     <circle cx="12" cy="12" r="10" />
                   </svg>
                 </button>
+                <button
+                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black hover:bg-gray-100"
+                  onClick={addFootballToCanvas}
+                  title="Add Football"
+                >
+                  <img 
+                    src="/svgs/american-football.svg" 
+                    alt="Football" 
+                    className="w-5 h-5"
+                  />
+                </button>
               </div>
             </div>
 
@@ -3147,7 +3255,7 @@ export default function Home() {
                 {shouldShowArrow && (
                   <polygon
                     points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - 0.6) * 12},${arrowY - Math.sin(angle - 0.6) * 12} ${arrowX - Math.cos(angle + 0.6) * 12},${arrowY - Math.sin(angle + 0.6) * 12}`}
-                    fill={selectedRoute === route.id ? "red" : "black"}
+                    fill={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
                   />
                 )}
             </svg>
@@ -3308,7 +3416,7 @@ export default function Home() {
           )}
 
           {/* Delete Selected Items Button */}
-          {(selectedItems.players.length > 0 || selectedItems.routes.length > 0 || selectedItems.textBoxes.length > 0 || selectedItems.circles.length > 0) && (
+          {((selectedItems.players?.length || 0) > 0 || (selectedItems.routes?.length || 0) > 0 || (selectedItems.textBoxes?.length || 0) > 0 || (selectedItems.circles?.length || 0) > 0 || (selectedItems.footballs?.length || 0) > 0) && (
             <div
               className="absolute top-24 right-6 z-20"
             >
@@ -3337,8 +3445,8 @@ export default function Home() {
               <div
                 key={player.id}
                 data-player={player.id}
-                className={`absolute w-12 h-12 rounded-full ${colorOption?.color || 'bg-gray-500'} border-4 transform -translate-x-1/2 -translate-y-1/2 ${
-                  isSelected ? 'border-blue-500 ring-4 ring-blue-300' : 'border-white'
+                className={`absolute w-12 h-12 rounded-full ${colorOption?.color || 'bg-gray-500'} transform -translate-x-1/2 -translate-y-1/2 ${
+                  isSelected ? 'border-4 border-blue-500 ring-4 ring-blue-300' : ''
                 } ${
                   mode === 'erase' && !isAnimating ? 'cursor-pointer' : 
                   !isAnimating ? 'cursor-move' : 'cursor-pointer'
@@ -3441,18 +3549,39 @@ export default function Home() {
             );
           })}
 
-          {/* Trash Can */}
-          {showTrashCan && (
+          {/* Footballs */}
+          {footballs && footballs.map((football) => {
+            const isSelected = selectedItems.footballs.includes(football.id);
+            return (
             <div
-              id="trash-can"
-              className="fixed bottom-4 right-4 w-16 h-16 bg-red-500 rounded-full flex items-center justify-center shadow-lg"
-              style={{ zIndex: 9999 }}
+              key={football.id}
+              data-football={football.id}
+              className={`absolute transform -translate-x-1/2 -translate-y-1/2 ${
+                mode === 'erase' ? 'cursor-pointer' : 'cursor-move'
+              }`}
+              style={{
+                left: football.x,
+                top: football.y,
+                width: `${football.size}px`,
+                height: `${football.size}px`,
+                zIndex: 3
+              }}
+              onMouseDown={(e) => handleFootballMouseDown(e, football.id)}
             >
-              <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 256 256">
-                <path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"></path>
-              </svg>
+              <img
+                src="/svgs/american-football.svg"
+                alt="Football"
+                width={football.size}
+                height={football.size}
+                className={isSelected ? 'ring-4 ring-blue-300' : ''}
+                style={{
+                  objectFit: 'contain'
+                }}
+              />
             </div>
-          )}
+            );
+          })}
+
         </div>
           </div>
 
@@ -4219,9 +4348,15 @@ export default function Home() {
                     changePlayerColor(selectedPlayerForColor, colorOption.name);
                   }
                 }}
-                className={`w-10 h-10 rounded-full ${colorOption.color} border-2 border-gray-300 hover:scale-110 transition-transform`}
+                className={`w-10 h-10 rounded-full ${colorOption.color} border-2 border-gray-300 hover:scale-110 transition-transform flex items-center justify-center`}
                 title={colorOption.name}
-              />
+              >
+                {colorOption.label && (
+                  <span className="text-white text-xs font-bold">
+                    {colorOption.label}
+                  </span>
+                )}
+              </button>
             ))}
             {/* Trash Can Icon */}
             <button
