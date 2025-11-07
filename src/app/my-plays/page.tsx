@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Player {
   id: string;
@@ -61,6 +62,64 @@ const colors = [
   { name: 'yellow', color: 'bg-yellow-500', label: '' },
   { name: 'qb', color: 'bg-black', label: 'QB' },
 ];
+
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const [showMenu, setShowMenu] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setShowMenu(false);
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
+  if (!user) {
+    return (
+      <Link
+        href="/login"
+        className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium shadow-sm"
+      >
+        Sign In
+      </Link>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <span className="hidden sm:inline">{user.email}</span>
+      </button>
+      {showMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setShowMenu(false)}
+          />
+          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-20">
+            <div className="px-4 py-2 text-sm text-gray-700 border-b">
+              {user.email}
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            >
+              Sign Out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function MyPlays() {
   const [savedPlays, setSavedPlays] = useState<SavedPlay[]>([]);
@@ -275,7 +334,50 @@ export default function MyPlays() {
     const offsetY = (containerHeight - scaledHeight) / 2 - (minY - padding) * scale;
 
     return (
-                    <div className="relative w-full h-full">
+                    <div className="relative w-full h-full bg-white">
+        {/* Football Field Lines */}
+        <div className="absolute inset-0">
+          {/* Yard Lines */}
+          <div className="absolute top-0 left-0 w-full h-full">
+            {/* 10-yard lines */}
+            <div className="absolute top-[10%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[20%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            
+            {/* Hash marks */}
+            <div className="absolute top-[5%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[5%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[15%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[15%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[25%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[25%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            
+            {/* Sidelines */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
+            <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+          </div>
+        </div>
+        
         {/* Routes */}
                       {play.routes?.map((route) => {
                         if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
@@ -407,17 +509,17 @@ export default function MyPlays() {
                             style={{
                 left: player.x * scale + offsetX,
                 top: player.y * scale + offsetY,
-                width: `${12 * scale}px`,
-                height: `${12 * scale}px`,
-                minWidth: '12px',
-                minHeight: '12px',
+                width: `${16 * scale}px`,
+                height: `${16 * scale}px`,
+                minWidth: '16px',
+                minHeight: '16px',
                               zIndex: 3,
                             }}
                           >
                             {colorOption?.label && (
                 <span 
                   className="text-white font-bold"
-                  style={{ fontSize: `${Math.max(8, 10 * scale)}px` }}
+                  style={{ fontSize: `${Math.max(10, 12 * scale)}px` }}
                 >
                                 {colorOption.label}
                               </span>
@@ -474,17 +576,12 @@ export default function MyPlays() {
           </div>
           <div className="flex items-center space-x-8">
             <Link 
-              href="/" 
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Play Builder
-            </Link>
-            <Link 
               href="/my-plays" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
               My Plays
             </Link>
+            <UserMenu />
           </div>
                     </div>
                   </div>

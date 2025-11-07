@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { getSharedFolder, SharedFolder } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Player {
   id: string;
@@ -58,6 +59,64 @@ const colors = [
   { name: 'yellow', color: 'bg-yellow-500', label: '' },
   { name: 'qb', color: 'bg-black', label: 'QB' },
 ];
+
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const [showMenu, setShowMenu] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setShowMenu(false);
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
+  if (!user) {
+    return (
+      <Link
+        href="/login"
+        className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium shadow-sm"
+      >
+        Sign In
+      </Link>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <span className="hidden sm:inline">{user.email}</span>
+      </button>
+      {showMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setShowMenu(false)}
+          />
+          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-20">
+            <div className="px-4 py-2 text-sm text-gray-700 border-b">
+              {user.email}
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            >
+              Sign Out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function SharedFolderPage() {
   const params = useParams();
@@ -438,12 +497,6 @@ export default function SharedFolderPage() {
           </div>
           <div className="flex items-center space-x-8">
             <Link 
-              href="/" 
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Play Builder
-            </Link>
-            <Link 
               href="/my-plays" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
@@ -455,6 +508,7 @@ export default function SharedFolderPage() {
             >
               Import to My Plays
             </button>
+            <UserMenu />
           </div>
         </div>
       </div>

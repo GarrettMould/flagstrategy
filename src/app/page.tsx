@@ -63,7 +63,7 @@ function UserMenu() {
     return (
       <Link
         href="/login"
-        className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium shadow-sm"
       >
         Sign In
       </Link>
@@ -226,48 +226,46 @@ export default function Home() {
   };
 
   const undo = () => {
-    // Use functional updates to ensure we're working with latest state
-    setHistoryIndex(prevIndex => {
-      if (prevIndex > 0) {
-        const newIndex = prevIndex - 1;
+    const currentIndex = historyIndexRef.current;
+    if (currentIndex > 0) {
+      const newIndex = currentIndex - 1;
+      // Read history state using functional update to get latest value
         setHistory(prevHistory => {
           const state = prevHistory[newIndex];
           if (state) {
+          // Update all states - React will batch these updates
             setPlayers([...state.players]);
             setRoutes([...state.routes]);
             setTextBoxes([...state.textBoxes]);
             setCircles([...(state.circles || [])]);
             setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
+          setHistoryIndex(newIndex);
             historyIndexRef.current = newIndex;
           }
-          return prevHistory;
+        return prevHistory; // Return unchanged history
         });
-        return newIndex;
       }
-      return prevIndex;
-    });
   };
 
   const redo = () => {
-    // Use functional updates to ensure we're working with latest state
-    setHistoryIndex(prevIndex => {
-      let newIndex = prevIndex;
+    const currentIndex = historyIndexRef.current;
+    // Read history state using functional update to get latest value
       setHistory(prevHistory => {
-        if (prevIndex < prevHistory.length - 1) {
-          newIndex = prevIndex + 1;
+      if (currentIndex < prevHistory.length - 1) {
+        const newIndex = currentIndex + 1;
           const state = prevHistory[newIndex];
           if (state) {
+          // Update all states - React will batch these updates
             setPlayers([...state.players]);
             setRoutes([...state.routes]);
             setTextBoxes([...state.textBoxes]);
             setCircles([...(state.circles || [])]);
             setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
+          setHistoryIndex(newIndex);
             historyIndexRef.current = newIndex;
           }
         }
-        return prevHistory;
-      });
-      return newIndex;
+      return prevHistory; // Return unchanged history
     });
   };
 
@@ -1095,28 +1093,28 @@ export default function Home() {
       playerColor: 'red'
     },
     hitch: {
-      // Hitch: forward then back (placeholder - will be replaced)
       points: [
-        { x: 0, y: 0 },
-        { x: 100, y: -80 },
-        { x: 100, y: -40 }
-      ],
-      style: 'solid',
-      lineBreakType: 'smooth',
-      color: 'black',
-      playerColor: 'red'
-    },
-    corner: {
-      // Corner: forward then sharp angle (placeholder - will be replaced)
-      points: [
-        { x: 0, y: 0 },
-        { x: 120, y: -140 },
-        { x: 200, y: -80 }
+        { x: 330.5, y: 332 },
+        { x: 329.5, y: 256 },
+        { x: 329.5, y: 256 },
+        { x: 305.5, y: 285 }
       ],
       style: 'solid',
       lineBreakType: 'rigid',
       color: 'black',
-      playerColor: 'red'
+      playerColor: 'yellow'
+    },
+    corner: {
+      points: [
+        { x: 427.0937255859375, y: 328.59694903829825 },
+        { x: 427.0937255859375, y: 298.59694903829825 },
+        { x: 427.0937255859375, y: 298.59694903829825 },
+        { x: 286.0937255859375, y: 267.59694903829825 }
+      ],
+      style: 'solid',
+      lineBreakType: 'rigid',
+      color: 'black',
+      playerColor: 'green'
     }
   };
 
@@ -1199,19 +1197,24 @@ export default function Home() {
       return;
     }
     
-    // Create exportable route data (normalized to start at 0,0 for easier use)
-    const minX = Math.min(...route.points.map(p => p.x));
-    const minY = Math.min(...route.points.map(p => p.y));
-    const normalizedPoints = route.points.map(p => ({
-      x: p.x - minX,
-      y: p.y - minY
+    // Get the player to find their color
+    const player = players.find(p => p.id === playerId);
+    const playerColor = player?.color || 'red';
+    
+    // Keep route points as absolute coordinates (matching defaultRouteData format)
+    // The first point will be the starting position, and addStandardRoute will
+    // replace it with the player's default position and calculate relative movements
+    const routePoints = route.points.map(point => ({
+      x: point.x,
+      y: point.y
     }));
     
     const routeData = {
-      points: normalizedPoints,
+      points: routePoints,
       style: route.style,
       lineBreakType: route.lineBreakType,
-      color: route.color || 'black'
+      color: route.color || 'black',
+      playerColor: playerColor
     };
     
     // Copy to clipboard
@@ -1220,10 +1223,12 @@ export default function Home() {
     
     // Also log to console for easy access
     console.log('=== ROUTE DATA FOR DEFAULT QUICK ADD ===');
+    console.log('Use this data to replace one of the default routes (slant, post, hitch, or corner)');
+    console.log('Format: routeName: { ...routeData }');
     console.log(jsonString);
     console.log('=== COPY THIS DATA ===');
     
-    alert(`Route data copied to clipboard!\n\nAlso check the browser console (F12) to see the formatted JSON.\n\nYou can now use this to replace a default route.`);
+    alert(`Route data copied to clipboard!\n\nAlso check the browser console (F12) to see the formatted JSON.\n\nYou can now use this to replace a default route in the defaultRouteData object.`);
   };
 
   // Export route data for button icon (scaled to fit 50x50 viewBox)
@@ -2659,165 +2664,10 @@ export default function Home() {
             <h1 className="text-lg font-bold text-gray-900">
               Flag Football Play Builder
             </h1>
-      </div>
-      
-          {/* Center: Toolbar - Animation, Tools, Play Options */}
-          <div className="flex items-center justify-center gap-6 flex-1">
-            {/* Animation Section */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Animation:</span>
-            <button
-                className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
-                  isAnimating 
-                    ? 'bg-red-500 text-white hover:bg-red-600' 
-                    : 'bg-yellow-500 text-white hover:bg-yellow-600'
-                }`}
-                onClick={isAnimating ? stopAnimation : startAnimation}
-                title={isAnimating ? "Stop Animation" : "Play Animation"}
-              >
-                {isAnimating ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h12v12H6z" />
-              </svg>
-                ) : (
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-              </svg>
-                )}
-            </button>
-            <button
-                className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
-                defensiveFormation === 'zone'
-                    ? 'bg-gray-50'
-                    : ''
-              }`}
-              onClick={() => {
-                setDefensiveFormation('zone');
-                createDefensivePlayers();
-              }}
-              title="Zone Defense"
-            >
-                <div className="text-xs font-bold text-gray-700">Zone</div>
-            </button>
-        </div>
-        
-            {/* Divider */}
-            <div className="h-10 w-px bg-gray-300"></div>
-          
-            {/* Tools Section */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Tools:</span>
-            <div className="flex space-x-2">
-            <button
-                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
-                  onClick={addTextBoxToCanvas}
-                  title="Add Text Box"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-              </svg>
-            </button>
-            <button
-                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
-                  onClick={addCircleToCanvas}
-                  title="Add Circle"
-                >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="10" />
-              </svg>
-            </button>
-            <button
-                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors text-black ${
-                mode === 'erase'
-                  ? 'bg-red-50'
-                  : ''
-              }`}
-              onClick={() => setMode('erase')}
-              title="Erase Players and Routes"
-            >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 256 256">
-                <path d="M225,80.4,183.6,39a24,24,0,0,0-33.94,0L31,157.66a24,24,0,0,0,0,33.94l30.06,30.06A8,8,0,0,0,66.74,224H216a8,8,0,0,0,0-16h-84.7L225,114.34A24,24,0,0,0,225,80.4ZM108.68,208H70.05L42.33,180.28a8,8,0,0,1,0-11.31L96,115.31,148.69,168Zm105-105L160,156.69,107.31,104,161,50.34a8,8,0,0,1,11.32,0l41.38,41.38a8,8,0,0,1,0,11.31Z"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-            {/* Divider */}
-            <div className="h-10 w-px bg-gray-300"></div>
-          
-            {/* Play Options Section */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Play Options:</span>
-          <div className="flex space-x-2">
-            <button
-                  className="w-10 h-10 bg-green-500 text-white rounded hover:bg-green-600 transition-colors flex items-center justify-center"
-              onClick={openSaveDialog}
-              title="Save Play"
-            >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 256 256">
-                <path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31ZM160,72a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h56A8,8,0,0,1,160,72Z"></path>
-              </svg>
-            </button>
-            <div className="relative" data-download-dropdown>
-            <button
-                className="w-10 h-10 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors flex items-center justify-center"
-                onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
-                title="Download"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </button>
-              {showDownloadDropdown && (
-                <div className="absolute top-12 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[120px]">
-                  <button
-              onClick={() => {
-                      downloadPlayAsJPG();
-                      setShowDownloadDropdown(false);
-              }}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
-            >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-                    Image
-            </button>
-            <button
-              onClick={() => {
-                      downloadAnimationAsGIF();
-                      setShowDownloadDropdown(false);
-              }}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
-            >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
-              </svg>
-                    GIF
-            </button>
-            </div>
-          )}
-        </div>
-            <button
-                  className="w-10 h-10 bg-red-500 text-white rounded hover:bg-red-600 transition-colors flex items-center justify-center"
-              onClick={clearPlayboard}
-              title="Clear Playboard"
-            >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-            </button>
-          </div>
-            </div>
           </div>
           
           {/* Right Side: Nav Links */}
           <div className="flex items-center space-x-8">
-            <Link 
-              href="/" 
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Play Builder
-            </Link>
             <Link 
               href="/my-plays" 
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
@@ -2972,6 +2822,130 @@ export default function Home() {
 
       {/* Canvas Container with Button Row */}
       <div className="flex-1 bg-gray-50 flex flex-col min-h-0 border-r border-gray-200">
+        {/* Toolbar - Centered over Canvas */}
+        <div className="bg-white border-b border-gray-200 flex-shrink-0">
+          <div className="flex items-center justify-center gap-6 py-3 px-4">
+            {/* Animation Section */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-700">Animation:</span>
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
+                  isAnimating 
+                    ? 'bg-red-500 text-white hover:bg-red-600' 
+                    : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                }`}
+                onClick={isAnimating ? stopAnimation : startAnimation}
+                title={isAnimating ? "Stop Animation" : "Play Animation"}
+              >
+                {isAnimating ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6h12v12H6z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            
+            {/* Divider */}
+            <div className="h-10 w-px bg-gray-300"></div>
+          
+            {/* Tools Section */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-700">Tools:</span>
+              <div className="flex space-x-2">
+                <button
+                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
+                  onClick={addTextBoxToCanvas}
+                  title="Add Text Box"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                  </svg>
+                </button>
+                <button
+                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
+                  onClick={addCircleToCanvas}
+                  title="Add Circle"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div className="h-10 w-px bg-gray-300"></div>
+          
+            {/* Play Options Section */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-700">Play Options:</span>
+              <div className="flex space-x-2">
+                <button
+                  className="w-10 h-10 bg-green-500 text-white rounded hover:bg-green-600 transition-colors flex items-center justify-center"
+                  onClick={openSaveDialog}
+                  title="Save Play"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 256 256">
+                    <path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31ZM160,72a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h56A8,8,0,0,1,160,72Z"></path>
+                  </svg>
+                </button>
+                <div className="relative" data-download-dropdown>
+                  <button
+                    className="w-10 h-10 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors flex items-center justify-center"
+                    onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                    title="Download"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </button>
+                  {showDownloadDropdown && (
+                    <div className="absolute top-12 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[120px]">
+                      <button
+                        onClick={() => {
+                          downloadPlayAsJPG();
+                          setShowDownloadDropdown(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Image
+                      </button>
+                      <button
+                        onClick={() => {
+                          downloadAnimationAsGIF();
+                          setShowDownloadDropdown(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+                        </svg>
+                        GIF
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="w-10 h-10 bg-red-500 text-white rounded hover:bg-red-600 transition-colors flex items-center justify-center"
+                  onClick={clearPlayboard}
+                  title="Clear Playboard"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
         {/* Canvas Container - left-aligned field with border */}
         <div className="flex-1 bg-gray-50 relative overflow-hidden min-h-0">
         <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full">
@@ -3483,15 +3457,14 @@ export default function Home() {
           </div>
 
           {/* Bottom Toolbar: Player Icons (left) and Route Tools (right) */}
-          <div className="bg-white border-t border-gray-200 flex flex-row flex-shrink-0 px-6 py-2">
+          <div className="bg-white border-t border-gray-200 flex flex-row flex-shrink-0 px-6 py-4">
             {/* Left Side: Player Icons in 2 rows */}
             <div className="flex-1">
-              <h2 className="text-sm font-semibold mb-1 text-gray-900">Player Icons</h2>
               <div className="grid grid-cols-3 gap-1.5">
                 {colors.map((colorOption) => (
                   <div
                     key={colorOption.name}
-                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0`}
+                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0 border-0`}
                     onClick={() => {
                       setSelectedColor(colorOption.name);
                       addPlayerToCanvas(colorOption.name);
@@ -3507,10 +3480,10 @@ export default function Home() {
                 <button
                   onClick={addAllPlayersToCanvas}
                   disabled={players.length > 0}
-                  className={`w-12 h-12 rounded flex items-center justify-center text-xs font-medium transition-transform ${
+                  className={`h-12 px-4 rounded flex items-center justify-center text-xs font-medium transition-transform border-0 ${
                     players.length > 0
                       ? 'bg-gray-50 text-gray-400 cursor-not-allowed opacity-50'
-                      : 'bg-gray-100 hover:bg-gray-200 cursor-pointer text-gray-700 hover:scale-105'
+                      : 'bg-blue-500 hover:bg-blue-600 cursor-pointer text-white hover:scale-105'
                   }`}
                   title={players.length > 0 ? "Clear canvas first to add all positions" : "Add All Positions"}
                 >
@@ -3521,11 +3494,10 @@ export default function Home() {
 
             {/* Right Side: Route Tools (1/3 width) */}
             <div className="w-1/3 border-l border-gray-200 pl-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-1">Route Tools</h3>
               <div className="flex flex-col gap-1">
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'solid' && selectedLineBreakType === 'rigid'
                         ? 'bg-gray-50'
                         : ''
@@ -3541,7 +3513,7 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'solid' && selectedLineBreakType === 'smooth'
                         ? 'bg-gray-50'
                         : ''
@@ -3557,7 +3529,7 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'rigid'
                         ? 'bg-gray-50'
                         : ''
@@ -3573,7 +3545,7 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth'
                         ? 'bg-gray-50'
                         : ''
@@ -3589,7 +3561,7 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'none'
                         ? 'bg-gray-50'
                         : ''
@@ -3605,7 +3577,7 @@ export default function Home() {
                     </svg>
                   </button>
                   <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth-none'
                         ? 'bg-gray-50'
                         : ''
@@ -3865,7 +3837,114 @@ export default function Home() {
               title="Hitch Route"
             >
               <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-                <path d="M20 80 Q50 70 50 60 Q50 50 50 65" stroke="black" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                {(() => {
+                  const routeData = defaultRouteData['hitch'];
+                  if (!routeData || routeData.points.length < 2) return null;
+                  
+                  // Normalize route points to fit in 0-100 viewBox
+                  const allX = routeData.points.map(p => p.x);
+                  const allY = routeData.points.map(p => p.y);
+                  const minX = Math.min(...allX);
+                  const maxX = Math.max(...allX);
+                  const minY = Math.min(...allY);
+                  const maxY = Math.max(...allY);
+                  const width = maxX - minX || 1;
+                  const height = maxY - minY || 1;
+                  const padding = 10;
+                  const scaleX = (100 - padding * 2) / width;
+                  const scaleY = (100 - padding * 2) / height;
+                  const scale = Math.min(scaleX, scaleY);
+                  const offsetX = (100 - width * scale) / 2 - minX * scale;
+                  const offsetY = (100 - height * scale) / 2 - minY * scale;
+                  
+                  const normalizedPoints = routeData.points.map(p => ({
+                    x: p.x * scale + offsetX,
+                    y: p.y * scale + offsetY
+                  }));
+                  
+                  // Check if we should show arrow and calculate stop point
+                  const shouldShowArrow = routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none';
+                  let pathPoints = normalizedPoints;
+                  let arrowStopPoint = normalizedPoints[normalizedPoints.length - 1];
+                  
+                  if (shouldShowArrow && normalizedPoints.length >= 2) {
+                    const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                    const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                    const dx = lastPoint.x - secondLastPoint.x;
+                    const dy = lastPoint.y - secondLastPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Stop the line before the arrow (scaled for 100x100 viewBox)
+                    const arrowGap = 6; // Gap before arrow in viewBox units
+                    const stopDistance = Math.max(0, distance - arrowGap);
+                    const stopRatio = distance > 0 ? stopDistance / distance : 0;
+                    
+                    arrowStopPoint = {
+                      x: secondLastPoint.x + dx * stopRatio,
+                      y: secondLastPoint.y + dy * stopRatio
+                    };
+                    
+                    // Create path points with shortened last segment
+                    pathPoints = normalizedPoints.slice(0, -1);
+                    pathPoints.push(arrowStopPoint);
+                  }
+                  
+                  return (
+                    <>
+                      <path
+                        d={(() => {
+                          if (routeData.lineBreakType === 'smooth' || routeData.lineBreakType === 'smooth-none') {
+                            // Generate smooth path
+                            if (pathPoints.length < 2) return '';
+                            if (pathPoints.length === 2) {
+                              return `M ${pathPoints[0].x} ${pathPoints[0].y} L ${pathPoints[1].x} ${pathPoints[1].y}`;
+                            }
+                            let path = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+                            for (let i = 1; i < pathPoints.length; i++) {
+                              if (i < pathPoints.length - 1) {
+                                const curr = pathPoints[i];
+                                const next = pathPoints[i + 1];
+                                const controlX = (curr.x + next.x) / 2;
+                                const controlY = (curr.y + next.y) / 2;
+                                path += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+                              } else {
+                                path += ` L ${pathPoints[i].x} ${pathPoints[i].y}`;
+                              }
+                            }
+                            return path;
+                          } else {
+                            // Rigid path
+                            if (pathPoints.length < 2) return '';
+                            return `M ${pathPoints.map(p => `${p.x} ${p.y}`).join(' L ')}`;
+                          }
+                        })()}
+                        stroke={routeData.color || 'black'}
+                        strokeWidth="4"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray={routeData.style === 'dashed' ? '4,4' : 'none'}
+                      />
+                      {shouldShowArrow && normalizedPoints.length >= 2 && (() => {
+                        const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                        const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                        const dx = lastPoint.x - secondLastPoint.x;
+                        const dy = lastPoint.y - secondLastPoint.y;
+                        const angle = Math.atan2(dy, dx);
+                        const arrowLength = 8;
+                        const arrowWidth = 4;
+                        const arrowX = lastPoint.x - Math.cos(angle) * arrowLength;
+                        const arrowY = lastPoint.y - Math.sin(angle) * arrowLength;
+                        return (
+                          <polygon
+                            points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle - Math.PI / 2) * arrowWidth} ${arrowX - Math.cos(angle + Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle + Math.PI / 2) * arrowWidth}`}
+                            fill={routeData.color || 'black'}
+                          />
+                        );
+                      })()}
+                    </>
+                  );
+                })()}
               </svg>
             </button>
             
@@ -3876,8 +3955,114 @@ export default function Home() {
               title="Corner Route"
             >
               <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-                <path d="M20 80 L60 50 L85 30" stroke="black" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                <polygon points="85,30 80,25 80,35" fill="black"/>
+                {(() => {
+                  const routeData = defaultRouteData['corner'];
+                  if (!routeData || routeData.points.length < 2) return null;
+                  
+                  // Normalize route points to fit in 0-100 viewBox
+                  const allX = routeData.points.map(p => p.x);
+                  const allY = routeData.points.map(p => p.y);
+                  const minX = Math.min(...allX);
+                  const maxX = Math.max(...allX);
+                  const minY = Math.min(...allY);
+                  const maxY = Math.max(...allY);
+                  const width = maxX - minX || 1;
+                  const height = maxY - minY || 1;
+                  const padding = 10;
+                  const scaleX = (100 - padding * 2) / width;
+                  const scaleY = (100 - padding * 2) / height;
+                  const scale = Math.min(scaleX, scaleY);
+                  const offsetX = (100 - width * scale) / 2 - minX * scale;
+                  const offsetY = (100 - height * scale) / 2 - minY * scale;
+                  
+                  const normalizedPoints = routeData.points.map(p => ({
+                    x: p.x * scale + offsetX,
+                    y: p.y * scale + offsetY
+                  }));
+                  
+                  // Check if we should show arrow and calculate stop point
+                  const shouldShowArrow = routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none';
+                  let pathPoints = normalizedPoints;
+                  let arrowStopPoint = normalizedPoints[normalizedPoints.length - 1];
+                  
+                  if (shouldShowArrow && normalizedPoints.length >= 2) {
+                    const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                    const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                    const dx = lastPoint.x - secondLastPoint.x;
+                    const dy = lastPoint.y - secondLastPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Stop the line before the arrow (scaled for 100x100 viewBox)
+                    const arrowGap = 6; // Gap before arrow in viewBox units
+                    const stopDistance = Math.max(0, distance - arrowGap);
+                    const stopRatio = distance > 0 ? stopDistance / distance : 0;
+                    
+                    arrowStopPoint = {
+                      x: secondLastPoint.x + dx * stopRatio,
+                      y: secondLastPoint.y + dy * stopRatio
+                    };
+                    
+                    // Create path points with shortened last segment
+                    pathPoints = normalizedPoints.slice(0, -1);
+                    pathPoints.push(arrowStopPoint);
+                  }
+                  
+                  return (
+                    <>
+                      <path
+                        d={(() => {
+                          if (routeData.lineBreakType === 'smooth' || routeData.lineBreakType === 'smooth-none') {
+                            // Generate smooth path
+                            if (pathPoints.length < 2) return '';
+                            if (pathPoints.length === 2) {
+                              return `M ${pathPoints[0].x} ${pathPoints[0].y} L ${pathPoints[1].x} ${pathPoints[1].y}`;
+                            }
+                            let path = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+                            for (let i = 1; i < pathPoints.length; i++) {
+                              if (i < pathPoints.length - 1) {
+                                const curr = pathPoints[i];
+                                const next = pathPoints[i + 1];
+                                const controlX = (curr.x + next.x) / 2;
+                                const controlY = (curr.y + next.y) / 2;
+                                path += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+                              } else {
+                                path += ` L ${pathPoints[i].x} ${pathPoints[i].y}`;
+                              }
+                            }
+                            return path;
+                          } else {
+                            // Rigid path
+                            if (pathPoints.length < 2) return '';
+                            return `M ${pathPoints.map(p => `${p.x} ${p.y}`).join(' L ')}`;
+                          }
+                        })()}
+                        stroke={routeData.color || 'black'}
+                        strokeWidth="4"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray={routeData.style === 'dashed' ? '4,4' : 'none'}
+                      />
+                      {shouldShowArrow && normalizedPoints.length >= 2 && (() => {
+                        const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+                        const secondLastPoint = normalizedPoints[normalizedPoints.length - 2];
+                        const dx = lastPoint.x - secondLastPoint.x;
+                        const dy = lastPoint.y - secondLastPoint.y;
+                        const angle = Math.atan2(dy, dx);
+                        const arrowLength = 8;
+                        const arrowWidth = 4;
+                        const arrowX = lastPoint.x - Math.cos(angle) * arrowLength;
+                        const arrowY = lastPoint.y - Math.sin(angle) * arrowLength;
+                        return (
+                          <polygon
+                            points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle - Math.PI / 2) * arrowWidth} ${arrowX - Math.cos(angle + Math.PI / 2) * arrowWidth},${arrowY - Math.sin(angle + Math.PI / 2) * arrowWidth}`}
+                            fill={routeData.color || 'black'}
+                          />
+                        );
+                      })()}
+                    </>
+                  );
+                })()}
               </svg>
             </button>
             
