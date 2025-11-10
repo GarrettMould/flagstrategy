@@ -5,6 +5,7 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 export interface SavedPlay {
   id: string;
   name: string;
+  playbook?: string;
   folderId?: string;
   players: Array<{
     id: string;
@@ -33,6 +34,12 @@ export interface SavedPlay {
     y: number;
     radius: number;
     color: string;
+  }>;
+  footballs?: Array<{
+    id: string;
+    x: number;
+    y: number;
+    size: number;
   }>;
   playerRouteAssociations?: [string, string[]][] | { [playerId: string]: string[] }; // Array format (legacy) or object format (Firestore)
   playNotes?: string;

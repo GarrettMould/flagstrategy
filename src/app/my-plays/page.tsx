@@ -51,20 +51,6 @@ interface Football {
   size: number;
 }
 
-interface SavedPlay {
-  id: string;
-  name: string;
-  playbook: string;
-  folderId?: string;
-  players: Player[];
-  routes: Route[];
-  textBoxes?: TextBox[];
-  circles?: Circle[];
-  footballs?: Football[];
-  createdAt: string;
-  playNotes?: string;
-}
-
 const colors = [
   { name: 'blue', color: 'bg-blue-500', label: '' },
   { name: 'red', color: 'bg-red-500', label: '' },
