@@ -1520,7 +1520,12 @@ export default function MyPlays() {
                     // Sync to Firebase if logged in
                     if (user) {
                       const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-                      saveUserData(savedPlays, updatedFolders).catch(console.error);
+                      const userData: UserData = {
+                        savedPlays: savedPlays,
+                        folders: updatedFolders,
+                        updatedAt: new Date().toISOString()
+                      };
+                      saveUserData(user.uid, userData).catch(console.error);
                     }
                     
                     setShowCreateFolderModal(false);
@@ -1561,7 +1566,12 @@ export default function MyPlays() {
                     // Sync to Firebase if logged in
                     if (user) {
                       const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-                      saveUserData(savedPlays, updatedFolders).catch(console.error);
+                      const userData: UserData = {
+                        savedPlays: savedPlays,
+                        folders: updatedFolders,
+                        updatedAt: new Date().toISOString()
+                      };
+                      saveUserData(user.uid, userData).catch(console.error);
                     }
                     
                     setShowCreateFolderModal(false);
