@@ -307,7 +307,7 @@ export interface UserData {
     id: string;
     name: string;
     createdAt: string;
-    parentFolderId?: string; // For nested folders
+    parentFolderId?: string | null; // For nested folders
   }>;
   updatedAt: string;
 }
