@@ -215,7 +215,7 @@ export async function createShareableLink(folderId: string, folderName: string, 
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      code: (error as any)?.code,
+      code: (error as { code?: string })?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
     // Re-throw with more context
@@ -286,7 +286,7 @@ export async function getSharedFolder(shareId: string): Promise<SharedFolder | n
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      code: (error as any)?.code,
+      code: (error as { code?: string })?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
     return null;
@@ -478,7 +478,7 @@ export async function saveUserData(userId: string, data: UserData): Promise<void
     console.error('Error:', error);
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
-      code: (error as any)?.code,
+      code: (error as { code?: string })?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
     throw error;
@@ -540,7 +540,7 @@ export async function loadUserData(userId: string): Promise<UserData | null> {
     console.error('Error:', error);
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
-      code: (error as any)?.code,
+      code: (error as { code?: string })?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
     throw error;

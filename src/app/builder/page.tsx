@@ -2352,7 +2352,7 @@ export default function Home() {
       console.log('Updating existing play');
       const playIndex = savedPlays.findIndex((play: { id: string }) => play.id === editingPlayId);
       if (playIndex !== -1) {
-        const updatedPlay: any = {
+        const updatedPlay: SavedPlay = {
           ...savedPlays[playIndex],
           name: playName.trim(),
           folderId: selectedFolder || undefined,
@@ -3245,7 +3245,7 @@ export default function Home() {
                           
                           try {
                             // Use Firebase to create shareable link (stores plays array directly)
-                            const { createShareableLink } = await import('./firebase');
+                            const { createShareableLink } = await import('../firebase');
                             const shareUrl = await createShareableLink(folder.id, folder.name, folderPlays);
                             
                             // Copy to clipboard

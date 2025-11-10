@@ -27,7 +27,7 @@ export default function HomePage() {
             </div>
           <div>
             <div className="text-sm font-medium text-gray-800">New Features</div>
-            <div className="text-xs text-gray-600">Check out what's new</div>
+            <div className="text-xs text-gray-600">Check out what&apos;s new</div>
           </div>
     </div>
       </header>

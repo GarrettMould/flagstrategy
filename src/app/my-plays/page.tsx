@@ -1778,7 +1778,7 @@ export default function MyPlays() {
               Delete Folder Forever
             </h3>
             <p className="text-gray-600 mb-8 text-base">
-              Are you sure you want to delete this folder forever? This action cannot be undone. All plays in this folder will be moved to "All Plays".
+              Are you sure you want to delete this folder forever? This action cannot be undone. All plays in this folder will be moved to &quot;All Plays&quot;.
             </p>
             <div className="flex justify-end gap-3">
               <button
