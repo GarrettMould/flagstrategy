@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveUserData, UserData, SavedPlay, createShareableLink } from '../firebase';
 
@@ -118,10 +119,26 @@ function UserMenu() {
 }
 
 export default function MyPlays() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
+  const pathname = usePathname();
+
+  const handleLogout = async () => {
+    try {
+      if (logout) {
+        await logout();
+      }
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
   const [savedPlays, setSavedPlays] = useState<SavedPlay[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // null = all plays, string = folder id
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null); // Current folder being viewed
+  const [folderPath, setFolderPath] = useState<Folder[]>([]); // Breadcrumb path
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set()); // For sidebar tree
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set()); // Multi-select
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid'); // Grid or list view
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [menuOpenForPlay, setMenuOpenForPlay] = useState<string | null>(null);
   const [showAddToFolderModal, setShowAddToFolderModal] = useState<boolean>(false);
   const [playToAddToFolder, setPlayToAddToFolder] = useState<string | null>(null);
@@ -132,7 +149,6 @@ export default function MyPlays() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState<string>('');
   const [notesTooltipPlayId, setNotesTooltipPlayId] = useState<string | null>(null);
-  const [showFolderView, setShowFolderView] = useState<boolean>(true);
   const [showCreateFolderModal, setShowCreateFolderModal] = useState<boolean>(false);
   const [newFolderInput, setNewFolderInput] = useState<string>('');
   const [folderCardMenuOpen, setFolderCardMenuOpen] = useState<string | null>(null);
@@ -178,7 +194,11 @@ export default function MyPlays() {
     const urlParams = new URLSearchParams(window.location.search);
     const folderId = urlParams.get('folder');
     if (folderId) {
-      setSelectedFolder(folderId);
+      // Delay navigation until folders are loaded
+      setTimeout(() => navigateToFolder(folderId), 0);
+    } else {
+      // Delay navigation until folders are loaded
+      setTimeout(() => navigateToFolder(null), 0);
     }
     };
     
@@ -209,9 +229,90 @@ export default function MyPlays() {
     }
   }, [menuOpenForPlay, folderMenuOpen, folderCardMenuOpen]);
 
-  const filteredPlays = selectedFolder === null
-    ? savedPlays
-    : savedPlays.filter(play => play.folderId === selectedFolder);
+  // Helper functions for folder navigation
+  const getFoldersInCurrentFolder = (parentId: string | null): Folder[] => {
+    // Handle both null and undefined for backward compatibility
+    if (parentId === null) {
+      return folders.filter(f => !f.parentFolderId || f.parentFolderId === null);
+    }
+    return folders.filter(f => f.parentFolderId === parentId);
+  };
+
+  const getPlaysInCurrentFolder = (folderId: string | null): SavedPlay[] => {
+    // Handle both null and undefined for backward compatibility
+    if (folderId === null) {
+      return savedPlays.filter(play => !play.folderId || play.folderId === null);
+    }
+    return savedPlays.filter(play => play.folderId === folderId);
+  };
+
+  const navigateToFolder = (folderId: string | null) => {
+    setCurrentFolderId(folderId);
+    setSelectedItems(new Set()); // Clear selection when navigating
+    
+    // Build breadcrumb path
+    if (folderId === null) {
+      setFolderPath([]);
+    } else {
+      const path: Folder[] = [];
+      let currentId: string | null = folderId;
+      
+      while (currentId) {
+        const folder = folders.find(f => f.id === currentId);
+        if (folder) {
+          path.unshift(folder);
+          currentId = folder.parentFolderId || null;
+        } else {
+          break;
+        }
+      }
+      setFolderPath(path);
+    }
+  };
+
+  const navigateToBreadcrumb = (index: number) => {
+    if (index === -1) {
+      navigateToFolder(null);
+    } else {
+      const folder = folderPath[index];
+      navigateToFolder(folder.id);
+    }
+  };
+
+  const toggleFolderExpansion = (folderId: string) => {
+    const newExpanded = new Set(expandedFolders);
+    if (newExpanded.has(folderId)) {
+      newExpanded.delete(folderId);
+    } else {
+      newExpanded.add(folderId);
+    }
+    setExpandedFolders(newExpanded);
+  };
+
+  // Get folder tree structure for sidebar
+  const getFolderTree = (parentId: string | null, level: number = 0): Array<Folder & { level: number }> => {
+    // Handle both null and undefined for backward compatibility
+    let children: Folder[];
+    if (parentId === null) {
+      children = folders.filter(f => !f.parentFolderId || f.parentFolderId === null);
+    } else {
+      children = folders.filter(f => f.parentFolderId === parentId);
+    }
+    
+    const result: Array<Folder & { level: number }> = [];
+    
+    children.forEach(folder => {
+      result.push({ ...folder, level });
+      if (expandedFolders.has(folder.id)) {
+        result.push(...getFolderTree(folder.id, level + 1));
+      }
+    });
+    
+    return result;
+  };
+
+  const filteredPlays = getPlaysInCurrentFolder(currentFolderId);
+  const foldersInCurrentFolder = getFoldersInCurrentFolder(currentFolderId);
 
   // Function to get a distinct color for each folder
   const getFolderColor = (index: number): string => {
@@ -230,12 +331,19 @@ export default function MyPlays() {
     return colors[index % colors.length];
   };
 
-  // Get play count for a folder
+  // Get play count for a folder (including nested folders)
   const getPlayCount = (folderId: string | null): number => {
     if (folderId === null) {
-      return savedPlays.length;
+      // Count all plays not in any folder
+      return savedPlays.filter(play => !play.folderId).length;
     }
+    // Count plays directly in this folder
     return savedPlays.filter(play => play.folderId === folderId).length;
+  };
+
+  // Get folder count (subfolders) for a folder
+  const getFolderCount = (folderId: string | null): number => {
+    return folders.filter(f => f.parentFolderId === folderId).length;
   };
 
   const createNewPlay = () => {
@@ -243,19 +351,41 @@ export default function MyPlays() {
     window.location.href = '/builder';
   };
 
-  const createNewFolder = () => {
-    if (!newFolderName.trim()) return;
+  const createNewFolder = async () => {
+    if (!newFolderInput.trim()) return;
     
     const newFolder: Folder = {
       id: Date.now().toString(),
-      name: newFolderName.trim(),
-      createdAt: new Date().toISOString()
+      name: newFolderInput.trim(),
+      createdAt: new Date().toISOString(),
+      parentFolderId: currentFolderId || undefined
     };
     
     const updatedFolders = [...folders, newFolder];
     setFolders(updatedFolders);
     localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
-    setNewFolderName('');
+    setNewFolderInput('');
+    setShowCreateFolderModal(false);
+    
+    // Sync to Firebase if user is logged in
+    if (user) {
+      try {
+        const existingData = await loadUserData(user.uid);
+        const userData: UserData = {
+          savedPlays: existingData?.savedPlays || savedPlays,
+          folders: updatedFolders,
+          updatedAt: new Date().toISOString()
+        };
+        await saveUserData(user.uid, userData);
+      } catch (error) {
+        console.error('Error syncing folder creation to Firebase:', error);
+      }
+    }
+    
+    // Expand parent folder in sidebar if it exists
+    if (currentFolderId) {
+      setExpandedFolders(prev => new Set(prev).add(currentFolderId!));
+    }
   };
 
   const editPlay = (playId: string) => {
@@ -331,41 +461,44 @@ export default function MyPlays() {
     setSavedPlays(updatedPlays);
     localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
     
-    // Sync to Firebase if user is logged in
-    if (user) {
-      try {
-        // Load existing data from Firebase to merge properly
-        const existingData = await loadUserData(user.uid);
-        let mergedPlays = updatedPlays;
-        
-        if (existingData && existingData.savedPlays.length > 0) {
-          // Merge plays: keep existing plays that aren't in local, update/keep local plays
-          const existingPlayIds = new Set(existingData.savedPlays.map((p: SavedPlay) => p.id));
-          const localPlayIds = new Set(updatedPlays.map((p: SavedPlay) => p.id));
-          
-          // Keep existing plays that aren't in local array
-          const playsToKeep = existingData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
-          
-          // Merge: combine kept plays with local plays
-          mergedPlays = [...playsToKeep, ...updatedPlays];
-        }
-        
-        const userData: UserData = {
-          savedPlays: mergedPlays,
-          folders: folders,
-          updatedAt: new Date().toISOString()
-        };
-        
-        await saveUserData(user.uid, userData);
-        console.log('Play deleted from Firebase successfully');
-      } catch (error) {
-        console.error('Error syncing play deletion to Firebase:', error);
-        // Don't block the UI - deletion from localStorage already happened
-      }
-    }
-    
+    // Close modal immediately
     setShowDeleteModal(false);
     setPlayToDelete(null);
+    
+    // Sync to Firebase in background (don't await)
+    if (user) {
+      (async () => {
+        try {
+          // Load existing data from Firebase to merge properly
+          const existingData = await loadUserData(user.uid);
+          let mergedPlays = updatedPlays;
+          
+          if (existingData && existingData.savedPlays.length > 0) {
+            // Merge plays: keep existing plays that aren't in local, update/keep local plays
+            const existingPlayIds = new Set(existingData.savedPlays.map((p: SavedPlay) => p.id));
+            const localPlayIds = new Set(updatedPlays.map((p: SavedPlay) => p.id));
+            
+            // Keep existing plays that aren't in local array
+            const playsToKeep = existingData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
+            
+            // Merge: combine kept plays with local plays
+            mergedPlays = [...playsToKeep, ...updatedPlays];
+          }
+          
+          const userData: UserData = {
+            savedPlays: mergedPlays,
+            folders: folders,
+            updatedAt: new Date().toISOString()
+          };
+          
+          await saveUserData(user.uid, userData);
+          console.log('Play deleted from Firebase successfully');
+        } catch (error) {
+          console.error('Error syncing play deletion to Firebase:', error);
+          // Don't block the UI - deletion from localStorage already happened
+        }
+      })();
+    }
   };
 
   const cancelDelete = () => {
@@ -1111,27 +1244,80 @@ export default function MyPlays() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Navigation */}
-      <div className="bg-white border-b border-gray-200 flex-shrink-0">
-        <div className="px-8 py-5 flex justify-between items-center max-w-full">
-          <div className="flex items-center">
-            <h1 className="text-lg font-bold text-gray-900">
-              Flag Football Play Builder
-            </h1>
-          </div>
-          <div className="flex items-center space-x-8">
-            <Link 
-              href="/my-plays" 
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+        {/* Site Title */}
+        <div className="flex items-center">
+          <span className="text-gray-800 font-bold text-lg tracking-tight">Flag Tactics</span>
+        </div>
+
+        {/* Navigation Links and Login/Logout */}
+        <div className="flex items-center gap-6">
+          <Link 
+            href="/builder" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/builder' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Play Builder
+          </Link>
+          <Link 
+            href="/my-plays" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/my-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            My Plays
+          </Link>
+          {!user ? (
+            <Link
+              href="/login"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
             >
-              My Plays
+              Log In
             </Link>
-            <UserMenu />
-          </div>
-                    </div>
-                  </div>
+          ) : (
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
+            >
+              Log Out
+            </button>
+          )}
+        </div>
+      </header>
                   
+      {/* Breadcrumb Navigation */}
+      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={() => navigateToFolder(null)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors text-sm text-gray-700"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+          </svg>
+          <span>My Plays</span>
+        </button>
+        {folderPath.map((folder, index) => (
+          <div key={folder.id} className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            <button
+              onClick={() => navigateToBreadcrumb(index)}
+              className="px-3 py-1.5 rounded hover:bg-gray-100 transition-colors text-sm text-gray-700"
+            >
+              {folder.name}
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* Toolbar */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4 flex-shrink-0">
+      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 flex-shrink-0">
         {/* Create New Play Button */}
         <button
           onClick={createNewPlay}
@@ -1143,219 +1329,203 @@ export default function MyPlays() {
           New Play
         </button>
 
-        {/* Folders Row */}
-        <div className="flex items-center gap-2 flex-1 overflow-x-auto">
-          {/* Create Folder Button */}
+        {/* Create Folder Button */}
+        <button
+          onClick={() => {
+            setNewFolderInput('');
+            setShowCreateFolderModal(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          New Folder
+        </button>
+
+        {/* View Toggle */}
+        <div className="flex items-center gap-1 ml-auto border border-gray-200 rounded-lg p-1">
           <button
-            onClick={() => {
-              setNewFolderInput('');
-              setShowCreateFolderModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700 whitespace-nowrap"
+            onClick={() => setViewMode('grid')}
+            className={`p-1.5 rounded transition-colors ${
+              viewMode === 'grid' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
             </svg>
-            New Folder
           </button>
-
-          {/* Back to Folders Button */}
-          {!showFolderView && (
           <button
-              onClick={() => setShowFolderView(true)}
-              className="px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors text-gray-600 hover:bg-gray-50 flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Back to Folders
+            onClick={() => setViewMode('list')}
+            className={`p-1.5 rounded transition-colors ${
+              viewMode === 'list' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </button>
-          )}
-
-          {/* Folder Buttons - Only show when not in folder view */}
-          {!showFolderView && folders.map((folder) => (
-            <div
-              key={folder.id}
-              className={`relative px-5 py-3 rounded-lg text-base whitespace-nowrap transition-colors flex items-center gap-3 ${
-                selectedFolder === folder.id
-                  ? 'bg-gray-100 text-gray-900 font-medium'
-                  : 'text-gray-600 hover:bg-gray-50'
+        </div>
+      </div>
+                  
+      {/* Main Content Area - Sidebar + Grid */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        <div className={`${sidebarCollapsed ? 'w-0' : 'w-64'} bg-white border-r border-gray-200 flex flex-col transition-all duration-200 overflow-hidden`}>
+          <div className="p-4 border-b border-gray-200">
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="w-full flex items-center justify-between text-sm font-medium text-gray-700 hover:text-gray-900"
+            >
+              <span>Folders</span>
+              <svg className={`w-4 h-4 transition-transform ${sidebarCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            {/* All Plays */}
+            <button
+              onClick={() => navigateToFolder(null)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                currentFolderId === null ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
-              <button
-                onClick={() => setSelectedFolder(folder.id)}
-                className="flex items-center gap-3 flex-1"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-                {editingFolderId === folder.id ? (
-                  <input
-                    type="text"
-                    value={editingFolderName}
-                    onChange={(e) => setEditingFolderName(e.target.value)}
-                    onBlur={saveFolderName}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        saveFolderName();
-                      } else if (e.key === 'Escape') {
-                        setEditingFolderId(null);
-                        setEditingFolderName('');
-                      }
-                    }}
-                    className="flex-1 bg-transparent border-b-2 border-blue-500 outline-none"
-                    autoFocus
-                  />
-                ) : (
-                  <span>{folder.name}</span>
-                )}
+              <span>All Plays</span>
             </button>
-            </div>
-          ))}
-        </div>
-                  </div>
-                  
-      {/* Main Content - Full Page Grid */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {showFolderView ? (
-          // Show folder cards when in folder view
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            {/* All Plays Card */}
-            <div
-              onClick={() => {
-                setSelectedFolder(null);
-                setShowFolderView(false);
-              }}
-              className="relative cursor-pointer group hover:scale-105 transition-transform"
-            >
-              {/* Card Stack Effect */}
-              <div className="relative">
-                {/* Back cards for stack effect */}
-                <div className="absolute top-4 left-4 w-full h-full bg-gray-300 rounded-lg opacity-60"></div>
-                <div className="absolute top-2 left-2 w-full h-full bg-gray-400 rounded-lg opacity-80"></div>
-                {/* Front card */}
-                <div className="relative bg-gray-500 rounded-lg shadow-lg p-6 min-h-[200px] flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-xl font-bold text-white mb-2">All Plays</h3>
-                  </div>
-                  <div className="mt-auto pt-4 border-t border-white/30">
-                    <p className="text-sm text-white/90">{getPlayCount(null)} plays</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Folder Cards */}
-            {folders.map((folder, index) => (
-              <div
-                key={folder.id}
-                className="relative group hover:scale-105 transition-transform"
-              >
-                {/* Three Dots Menu Button */}
-                <div className="absolute top-3 right-3 z-20" onClick={(e) => e.stopPropagation()} data-folder-card-menu>
+            
+            {/* Folder Tree */}
+            {getFolderTree(null).map((folder) => (
+              <div key={folder.id} style={{ paddingLeft: `${folder.level * 16}px` }}>
+                <div className="flex items-center gap-1">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFolderCardMenuOpen(folderCardMenuOpen === folder.id ? null : folder.id);
-                    }}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/20 hover:bg-white/30 transition-colors backdrop-blur-sm"
-                    data-folder-card-menu
+                    onClick={() => toggleFolderExpansion(folder.id)}
+                    className="p-1 hover:bg-gray-100 rounded"
                   >
-                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                    <svg 
+                      className={`w-3 h-3 transition-transform ${expandedFolders.has(folder.id) ? 'rotate-90' : ''}`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
-
-                  {/* Dropdown Menu */}
-                  {folderCardMenuOpen === folder.id && (
-                    <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-lg shadow-xl z-30 min-w-[160px] py-1" data-folder-card-menu>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditFolderName(folder.id, folder.name);
-                          setFolderCardMenuOpen(null);
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                        data-folder-card-menu
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        Rename
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const folderPlays = savedPlays.filter(p => p.folderId === folder.id);
-                          folderPlays.forEach((play, index) => {
-                            setTimeout(() => {
-                              downloadPlayAsJPG(play);
-                            }, index * 500); // Stagger downloads by 500ms
-                          });
-                          setFolderCardMenuOpen(null);
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                        data-folder-card-menu
-                      >
-                        Download
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteFolder(folder.id);
-                          setFolderCardMenuOpen(null);
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
-                        data-folder-card-menu
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        Delete Forever
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Card Stack Effect */}
-                <div 
-                  className="relative cursor-pointer"
-                  onClick={() => {
-                    setSelectedFolder(folder.id);
-                    setShowFolderView(false);
-                  }}
-                >
-                  {/* Back cards for stack effect */}
-                  <div className={`absolute top-4 left-4 w-full h-full ${getFolderColor(index)} rounded-lg opacity-60`}></div>
-                  <div className={`absolute top-2 left-2 w-full h-full ${getFolderColor(index)} rounded-lg opacity-80`}></div>
-                  {/* Front card */}
-                  <div className={`relative ${getFolderColor(index)} rounded-lg shadow-lg p-6 min-h-[200px] flex flex-col justify-between`}>
-                    <div>
-                      <h3 className="text-xl font-bold text-white mb-2">{folder.name}</h3>
-                    </div>
-                    <div className="mt-auto pt-4 border-t border-white/30">
-                      <p className="text-sm text-white/90">{getPlayCount(folder.id)} plays</p>
-                    </div>
-                  </div>
+                  <button
+                    onClick={() => navigateToFolder(folder.id)}
+                    className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+                      currentFolderId === folder.id ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                    <span className="truncate">{folder.name}</span>
+                  </button>
                 </div>
               </div>
             ))}
           </div>
-        ) : filteredPlays.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <p className="text-lg text-gray-500 mb-2">No plays in this folder</p>
-              <p className="text-sm text-gray-400">
-                Add plays to this folder using the menu on play cards
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            {filteredPlays.map((play) => (
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+              {/* Folder Cards */}
+              {foldersInCurrentFolder.map((folder, index) => (
+                <div
+                  key={folder.id}
+                  className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer"
+                  onClick={() => navigateToFolder(folder.id)}
+                >
+                  {/* Three Dots Menu Button */}
+                  <div className="absolute top-2 right-2 z-20" onClick={(e) => e.stopPropagation()} data-folder-card-menu>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFolderCardMenuOpen(folderCardMenuOpen === folder.id ? null : folder.id);
+                      }}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-white hover:bg-gray-100 transition-colors shadow-sm border border-gray-200"
+                      data-folder-card-menu
+                    >
+                      <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                      </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {folderCardMenuOpen === folder.id && (
+                      <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-lg shadow-xl z-30 min-w-[160px] py-1" data-folder-card-menu>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditFolderName(folder.id, folder.name);
+                            setFolderCardMenuOpen(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          data-folder-card-menu
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          Rename
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const folderPlays = savedPlays.filter(p => p.folderId === folder.id);
+                            folderPlays.forEach((play, index) => {
+                              setTimeout(() => {
+                                downloadPlayAsJPG(play);
+                              }, index * 500);
+                            });
+                            setFolderCardMenuOpen(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          data-folder-card-menu
+                        >
+                          Download
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFolder(folder.id);
+                            setFolderCardMenuOpen(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                          data-folder-card-menu
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete Forever
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Folder Icon */}
+                  <div className="p-6 flex flex-col items-center justify-center min-h-[200px]">
+                    <div className={`w-16 h-16 ${getFolderColor(index)} rounded-lg flex items-center justify-center mb-4`}>
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-base font-semibold text-gray-900 mb-1 text-center">{folder.name}</h3>
+                    <p className="text-sm text-gray-500">{getPlayCount(folder.id)} plays, {getFolderCount(folder.id)} folders</p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Play Cards */}
+              {filteredPlays.map((play) => (
               <div
                 key={play.id}
                 className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200"
@@ -1476,10 +1646,27 @@ export default function MyPlays() {
             )}
           </div>
               </div>
-            ))}
-                      </div>
-        )}
-                    </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4">
+              <p className="text-gray-500">List view coming soon</p>
+            </div>
+          )}
+          
+          {/* Empty State */}
+          {foldersInCurrentFolder.length === 0 && filteredPlays.length === 0 && (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <p className="text-lg text-gray-500 mb-2">This folder is empty</p>
+                <p className="text-sm text-gray-400">
+                  Create a new play or folder to get started
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
                     
       {/* Create Folder Modal */}
       {showCreateFolderModal && (
@@ -1508,28 +1695,7 @@ export default function MyPlays() {
                 onChange={(e) => setNewFolderInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newFolderInput.trim()) {
-                    const newFolder: Folder = {
-                      id: Date.now().toString(),
-                      name: newFolderInput.trim(),
-                      createdAt: new Date().toISOString()
-                    };
-                    const updatedFolders = [...folders, newFolder];
-                    setFolders(updatedFolders);
-                    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
-                    
-                    // Sync to Firebase if logged in
-                    if (user) {
-                      const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-                      const userData: UserData = {
-                        savedPlays: savedPlays,
-                        folders: updatedFolders,
-                        updatedAt: new Date().toISOString()
-                      };
-                      saveUserData(user.uid, userData).catch(console.error);
-                    }
-                    
-                    setShowCreateFolderModal(false);
-                    setNewFolderInput('');
+                    createNewFolder();
                   } else if (e.key === 'Escape') {
                     setShowCreateFolderModal(false);
                     setNewFolderInput('');
@@ -1554,28 +1720,7 @@ export default function MyPlays() {
               <button
                 onClick={() => {
                   if (newFolderInput.trim()) {
-                    const newFolder: Folder = {
-                      id: Date.now().toString(),
-                      name: newFolderInput.trim(),
-                      createdAt: new Date().toISOString()
-                    };
-                    const updatedFolders = [...folders, newFolder];
-                    setFolders(updatedFolders);
-                    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
-                    
-                    // Sync to Firebase if logged in
-                    if (user) {
-                      const savedPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-                      const userData: UserData = {
-                        savedPlays: savedPlays,
-                        folders: updatedFolders,
-                        updatedAt: new Date().toISOString()
-                      };
-                      saveUserData(user.uid, userData).catch(console.error);
-                    }
-                    
-                    setShowCreateFolderModal(false);
-                    setNewFolderInput('');
+                    createNewFolder();
                   }
                 }}
                 disabled={!newFolderInput.trim()}

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { saveUserData, loadUserData, UserData, SavedPlay } from '../firebase';
 
@@ -51,6 +52,7 @@ interface Folder {
   id: string;
   name: string;
   createdAt: string;
+  parentFolderId?: string; // For nested folders
 }
 
 function UserMenu() {
@@ -112,7 +114,7 @@ function UserMenu() {
 }
 
 export default function Home() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedColor, setSelectedColor] = useState<string>('blue');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1962,6 +1964,7 @@ export default function Home() {
     setLastPoint(null);
     setSelectedRoute(null);
     setMode('add');
+    setPlayNotes('');
     
     // Reset history
     const initialState = {
@@ -2402,7 +2405,18 @@ export default function Home() {
     console.log('After save - savedPlays count:', savedPlays.length);
     console.log('After save - savedPlays:', savedPlays.map((p: SavedPlay) => ({ id: p.id, name: p.name, folderId: p.folderId })));
     
-    // Cloud-first: Save to Firestore if logged in, then localStorage
+    // Save to localStorage first
+    localStorage.setItem('savedPlays', JSON.stringify(savedPlays));
+    console.log('Saved to localStorage');
+    
+    // Close dialog immediately
+    setPlayName('');
+    setSelectedFolder('');
+    setNewFolderName('');
+    setEditingPlayId(null);
+    setShowSaveDialog(false);
+    
+    // Cloud sync in background (don't await)
     if (user) {
       console.log('User is logged in, syncing to cloud...');
       // Debug: Log plays with folderId before syncing
@@ -2411,20 +2425,14 @@ export default function Home() {
       if (playsWithFolders.length > 0) {
         console.log('Plays with folderId:', playsWithFolders.map((p: SavedPlay) => ({ id: p.id, name: p.name, folderId: p.folderId })));
       }
-      await syncToCloud(savedPlays, currentFolders);
+      syncToCloud(savedPlays, currentFolders).catch((error) => {
+        console.error('Error syncing to cloud:', error);
+      });
     } else {
       console.log('User not logged in, skipping cloud sync');
     }
     
-    localStorage.setItem('savedPlays', JSON.stringify(savedPlays));
-    console.log('Saved to localStorage');
     console.log('=== savePlay END ===');
-    
-    setPlayName('');
-    setSelectedFolder('');
-    setNewFolderName('');
-    setEditingPlayId(null);
-    setShowSaveDialog(false);
   };
 
   const closeSaveDialog = () => {
@@ -3123,30 +3131,66 @@ export default function Home() {
     });
   };
 
+  const pathname = usePathname();
+
+  const handleLogout = async () => {
+    try {
+      if (logout) {
+        await logout();
+      }
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col">
       {/* Navigation */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-8 py-4 flex justify-between items-center">
-          {/* Left Side: Logo */}
-          <div className="flex items-center">
-            <h1 className="text-lg font-bold text-gray-900">
-              Flag Football Play Builder
-            </h1>
-          </div>
-          
-          {/* Right Side: Nav Links */}
-          <div className="flex items-center space-x-8">
-            <Link 
-              href="/my-plays" 
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              My Plays
-            </Link>
-            <UserMenu />
-            </div>
-            </div>
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200">
+        {/* Site Title */}
+        <div className="flex items-center">
+          <span className="text-gray-800 font-bold text-lg tracking-tight">Flag Tactics</span>
         </div>
+
+        {/* Navigation Links and Login/Logout */}
+        <div className="flex items-center gap-6">
+          <Link 
+            href="/builder" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/builder' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Play Builder
+          </Link>
+          <Link 
+            href="/my-plays" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/my-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            My Plays
+          </Link>
+          {!user ? (
+            <Link
+              href="/login"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
+            >
+              Log In
+            </Link>
+          ) : (
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
+            >
+              Log Out
+            </button>
+          )}
+        </div>
+      </header>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar - Folder List */}
