@@ -50,6 +50,7 @@ interface SavedPlay {
   circles?: Circle[];
   createdAt?: string;
   playerRouteAssociations?: [string, string[]][];
+  playNotes?: string;
 }
 
 const colors = [
@@ -554,6 +555,9 @@ export default function SharedFolderPage() {
                   <h3 className="text-sm font-medium text-gray-900 truncate">{play.name}</h3>
                   {play.playbook && (
                     <p className="text-xs text-gray-500 mt-1">{play.playbook}</p>
+                  )}
+                  {play.playNotes && (
+                    <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{play.playNotes}</p>
                   )}
                 </div>
               </div>

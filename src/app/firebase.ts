@@ -34,7 +34,8 @@ export interface SavedPlay {
     radius: number;
     color: string;
   }>;
-  playerRouteAssociations?: [string, string[]][];
+  playerRouteAssociations?: [string, string[]][] | { [playerId: string]: string[] }; // Array format (legacy) or object format (Firestore)
+  playNotes?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -386,17 +387,100 @@ export function getCurrentUser(): User | null {
   return authInstance.currentUser;
 }
 
+// Helper function to sanitize data for Firestore (convert nested arrays to objects)
+// Only converts arrays that are directly arrays of arrays (not arrays of objects with array properties)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sanitizeForFirestore(data: any): any {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  
+  // Handle arrays
+  if (Array.isArray(data)) {
+    // Check if this is an array of arrays (nested array) - where items are directly arrays
+    // This is different from an array of objects that contain arrays
+    const isArrayOfArrays = data.length > 0 && data.every(item => Array.isArray(item) && (item.length === 0 || typeof item[0] !== 'object' || item[0] === null));
+    
+    if (isArrayOfArrays) {
+      // Convert array of arrays to object with numeric keys
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const obj: { [key: string]: any } = {};
+      data.forEach((item, index) => {
+        obj[index.toString()] = sanitizeForFirestore(item);
+      });
+      return obj;
+    } else {
+      // Regular array (of objects, primitives, etc.) - recursively sanitize items
+      return data.map(item => sanitizeForFirestore(item));
+    }
+  }
+  
+  // Handle objects
+  if (typeof data === 'object') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: { [key: string]: any } = {};
+    for (const key in data) {
+      if (data.hasOwnProperty(key)) {
+        result[key] = sanitizeForFirestore(data[key]);
+      }
+    }
+    return result;
+  }
+  
+  // Primitives - return as-is
+  return data;
+}
+
 // Save user data to Firestore (cloud-first)
 export async function saveUserData(userId: string, data: UserData): Promise<void> {
   try {
+    console.log('=== saveUserData START ===');
+    console.log('User ID:', userId);
+    console.log('Data to save:', {
+      savedPlaysCount: data.savedPlays?.length || 0,
+      foldersCount: data.folders?.length || 0,
+      savedPlays: data.savedPlays?.map(p => ({ id: p.id, name: p.name, folderId: p.folderId })) || [],
+      folders: data.folders || []
+    });
+    
+    // Check for nested arrays in playerRouteAssociations
+    if (data.savedPlays) {
+      data.savedPlays.forEach((play, index) => {
+        if (play.playerRouteAssociations && Array.isArray(play.playerRouteAssociations)) {
+          console.log(`Play ${index} (${play.name}) has array format playerRouteAssociations:`, play.playerRouteAssociations);
+          // Convert array format to object format
+          play.playerRouteAssociations = Object.fromEntries(play.playerRouteAssociations as [string, string[]][]);
+          console.log(`Converted to object format:`, play.playerRouteAssociations);
+        }
+      });
+    }
+    
+    console.log('Full data object:', JSON.stringify(data, null, 2));
+    
     const firestoreDb = getDb();
     const userDataWithTimestamp = {
       ...data,
       updatedAt: new Date().toISOString()
     };
-    await setDoc(doc(firestoreDb, 'users', userId), userDataWithTimestamp, { merge: true });
+    
+    // Sanitize data to ensure no nested arrays
+    const sanitizedData = sanitizeForFirestore(userDataWithTimestamp);
+    console.log('Sanitized data:', JSON.stringify(sanitizedData, null, 2));
+    
+    console.log('Saving to Firestore path: users/', userId);
+    
+    await setDoc(doc(firestoreDb, 'users', userId), sanitizedData, { merge: true });
+    
+    console.log('Successfully saved to Firestore');
+    console.log('=== saveUserData END ===');
   } catch (error) {
-    console.error('Error saving user data:', error);
+    console.error('=== Error in saveUserData ===');
+    console.error('Error:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      code: (error as any)?.code,
+      stack: error instanceof Error ? error.stack : undefined
+    });
     throw error;
   }
 }
@@ -404,29 +488,61 @@ export async function saveUserData(userId: string, data: UserData): Promise<void
 // Load user data from Firestore
 export async function loadUserData(userId: string): Promise<UserData | null> {
   try {
+    console.log('=== loadUserData START ===');
+    console.log('User ID:', userId);
+    
     const firestoreDb = getDb();
     const docRef = doc(firestoreDb, 'users', userId);
+    console.log('Loading from Firestore path: users/', userId);
+    
     const docSnap = await getDoc(docRef);
+    console.log('Document exists:', docSnap.exists());
     
     if (docSnap.exists()) {
-      const data = docSnap.data() as UserData;
-      return {
+      const rawData = docSnap.data();
+      console.log('Raw data from Firestore:', rawData);
+      console.log('Raw data keys:', Object.keys(rawData));
+      console.log('Raw savedPlays type:', typeof rawData.savedPlays, 'isArray:', Array.isArray(rawData.savedPlays));
+      console.log('Raw savedPlays value:', rawData.savedPlays);
+      console.log('Raw folders type:', typeof rawData.folders, 'isArray:', Array.isArray(rawData.folders));
+      console.log('Raw folders value:', rawData.folders);
+      
+      const data = rawData as UserData;
+      const result = {
         savedPlays: Array.isArray(data.savedPlays) ? data.savedPlays : [],
         folders: Array.isArray(data.folders) ? data.folders : [],
         updatedAt: data.updatedAt || new Date().toISOString()
       };
+      
+      console.log('Processed result:', {
+        savedPlaysCount: result.savedPlays.length,
+        foldersCount: result.folders.length,
+        savedPlays: result.savedPlays.map(p => ({ id: p.id, name: p.name, folderId: p.folderId })),
+        folders: result.folders
+      });
+      console.log('=== loadUserData END (found) ===');
+      return result;
     }
     
     // If user document doesn't exist, create it
+    console.log('Document does not exist, creating initial data');
     const initialData: UserData = {
       savedPlays: [],
       folders: [],
       updatedAt: new Date().toISOString()
     };
     await setDoc(docRef, initialData);
+    console.log('Created initial user document');
+    console.log('=== loadUserData END (created) ===');
     return initialData;
   } catch (error) {
-    console.error('Error loading user data:', error);
+    console.error('=== Error in loadUserData ===');
+    console.error('Error:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      code: (error as any)?.code,
+      stack: error instanceof Error ? error.stack : undefined
+    });
     throw error;
   }
 }
