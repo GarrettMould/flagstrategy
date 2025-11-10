@@ -52,7 +52,7 @@ interface Folder {
   id: string;
   name: string;
   createdAt: string;
-  parentFolderId?: string; // For nested folders
+  parentFolderId?: string | null; // For nested folders
 }
 
 function UserMenu() {
@@ -4868,32 +4868,6 @@ export default function Home() {
                 >
                   <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedPlayerForColor) {
-                      exportRouteAsDefault(selectedPlayerForColor);
-                    }
-                  }}
-                  className="w-10 h-10 rounded-full bg-blue-500 border-2 border-blue-600 hover:bg-blue-600 hover:scale-110 transition-transform flex items-center justify-center"
-                  title="Export route data for default quick add"
-                >
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedPlayerForColor) {
-                      exportRouteForButtonIcon(selectedPlayerForColor);
-                    }
-                  }}
-                  className="w-10 h-10 rounded-full bg-purple-500 border-2 border-purple-600 hover:bg-purple-600 hover:scale-110 transition-transform flex items-center justify-center"
-                  title="Export route data for button icon (bottom menu)"
-                >
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
                 </button>
               </>
