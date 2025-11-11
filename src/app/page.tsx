@@ -53,7 +53,7 @@ export default function HomePage() {
         {/* CTA Buttons */}
         <div className="flex items-center gap-4">
           <Link
-            href={user ? "/builder" : "/login"}
+            href="/builder"
             className="px-8 py-4 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-lg"
           >
             Play Builder

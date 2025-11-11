@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { signUp, logIn, signInWithGoogle } from '../firebase';
 import Link from 'next/link';
 
@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,12 +74,48 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            {isSignUp ? 'Create your account' : 'Sign in to your account'}
-          </h2>
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Navigation */}
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+        {/* Site Title */}
+        <div className="flex items-center">
+          <Link href="/" className="text-gray-800 font-bold text-lg tracking-tight hover:text-gray-900 transition-colors">
+            Flag Tactics
+          </Link>
+        </div>
+
+        {/* Navigation Links (no login button) */}
+        <div className="flex items-center gap-6">
+          <Link 
+            href="/builder" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/builder' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Play Builder
+          </Link>
+          <Link 
+            href="/my-plays" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/my-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            My Plays
+          </Link>
+        </div>
+      </header>
+
+      {/* Login Form Content */}
+      <div className="flex-1 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md w-full space-y-8">
+          <div>
+            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+              {isSignUp ? 'Create your account' : 'Sign in to your account'}
+            </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             {isSignUp ? (
               <>
@@ -149,9 +186,13 @@ export default function LoginPage() {
               />
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                tabIndex={-1}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowPassword(!showPassword);
+                }}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 z-10 cursor-pointer"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? (
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -225,6 +266,7 @@ export default function LoginPage() {
             </Link>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

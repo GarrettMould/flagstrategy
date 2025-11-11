@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { saveUserData, loadUserData, UserData, SavedPlay } from '../firebase';
+import { saveUserData, loadUserData, UserData, SavedPlay, signUp, logIn, signInWithGoogle } from '../firebase';
 
 interface Player {
   id: string;
@@ -124,6 +124,14 @@ export default function Home() {
   const [draggedPlayer, setDraggedPlayer] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showSaveDialog, setShowSaveDialog] = useState<boolean>(false);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(true);
   const [playName, setPlayName] = useState<string>('');
   const [playNotes, setPlayNotes] = useState<string>('');
   const [selectedFolder, setSelectedFolder] = useState<string>('');
@@ -298,25 +306,32 @@ export default function Home() {
   };
 
   const undo = () => {
-    const currentIndex = historyIndexRef.current;
-    if (currentIndex > 0) {
-      const newIndex = currentIndex - 1;
-      // Read history state using functional update to get latest value
-        setHistory(prevHistory => {
-          const state = prevHistory[newIndex];
-          if (state) {
-          // Update all states - React will batch these updates
-            setPlayers([...state.players]);
-            setRoutes([...state.routes]);
-            setTextBoxes([...state.textBoxes]);
-            setCircles([...(state.circles || [])]);
-            setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
+    // Flush any pending history saves first by clearing the timeout
+    if (saveHistoryTimeoutRef.current) {
+      clearTimeout(saveHistoryTimeoutRef.current);
+      saveHistoryTimeoutRef.current = null;
+    }
+    
+    // Perform the undo using functional update to get latest history
+    setHistory(prevHistory => {
+      const currentIndex = historyIndexRef.current;
+      if (currentIndex > 0) {
+        const newIndex = currentIndex - 1;
+        const state = prevHistory[newIndex];
+        if (state) {
+          // Update all states
+          setPlayers([...state.players]);
+          setRoutes([...state.routes]);
+          setTextBoxes([...state.textBoxes]);
+          setCircles([...(state.circles || [])]);
+          setFootballs([...(state.footballs || [])]);
+          setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
           setHistoryIndex(newIndex);
-            historyIndexRef.current = newIndex;
-          }
-        return prevHistory; // Return unchanged history
-        });
+          historyIndexRef.current = newIndex;
+        }
       }
+      return prevHistory; // Return unchanged history
+    });
   };
 
   const redo = () => {
@@ -1474,27 +1489,21 @@ export default function Home() {
     const route = routes.find(r => r.id === routeId);
     if (!route) return;
     
-    // Get the player to find their color
+    // Get the player to find their color and position
     const player = players.find(p => p.id === playerId);
-    const playerColor = player?.color || 'red';
+    if (!player) return;
+    const playerColor = player.color || 'red';
     
-    // Normalize the route points (make them relative to the first point)
-    // This ensures the route can be positioned correctly at any default position
-    const firstPoint = route.points[0];
+    // Normalize the route points relative to the player's position (not the route's first point)
+    // This ensures the route is positioned correctly when applied from quick adds
     const normalizedRoute: Route & { playerColor?: string } = {
       ...route,
-      points: route.points.map((point, index) => {
-        if (index === 0) {
-          // First point stays at (0, 0) or relative to itself - actually keep it as is for now
-          // We'll normalize relative to first point
-          return { x: 0, y: 0 };
-        } else {
-          // Calculate relative position from first point
-          return {
-            x: point.x - firstPoint.x,
-            y: point.y - firstPoint.y
-          };
-        }
+      points: route.points.map((point) => {
+        // Calculate relative position from player's center
+        return {
+          x: point.x - player.x,
+          y: point.y - player.y
+        };
       }),
       playerColor
     };
@@ -1538,19 +1547,14 @@ export default function Home() {
       type: 'offense'
     };
     
-    // Route points are normalized (first point is at 0,0, others are relative)
+    // Route points are normalized relative to player's center (all points are relative to player position)
     // Position the route starting at the default position
-    const routePoints = customRoute.points.map((point, index) => {
-      if (index === 0) {
-        // First point is at the player's default position
-        return { x: startX, y: startY };
-      } else {
-        // Other points are relative to the first point
-        return {
-          x: startX + point.x,
-          y: startY + point.y
-        };
-      }
+    const routePoints = customRoute.points.map((point) => {
+      // All points are relative to the player's center position
+      return {
+        x: startX + point.x,
+        y: startY + point.y
+      };
     });
     
     // Create new route with translated points
@@ -2320,12 +2324,92 @@ export default function Home() {
       alert('Please add some players before saving the play.');
       return;
     }
+    // If user is not logged in, show login modal instead
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     setShowSaveDialog(true);
     setShowCreateFolderInput(false);
     setNewFolderName('');
     // Load existing folders
     const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
     setFolders(savedFolders);
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+
+    try {
+      if (isSignUp) {
+        await signUp(loginEmail, loginPassword);
+      } else {
+        await logIn(loginEmail, loginPassword);
+      }
+      // Close login modal and open save dialog
+      setShowLoginModal(false);
+      setLoginEmail('');
+      setLoginPassword('');
+      setShowLoginPassword(false);
+      // Open save dialog after successful login
+      setShowSaveDialog(true);
+      setShowCreateFolderInput(false);
+      setNewFolderName('');
+      const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+      setFolders(savedFolders);
+    } catch (err: unknown) {
+      console.error('Auth error:', err);
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/email-already-in-use') {
+        setLoginError('This email is already registered. Please sign in instead.');
+      } else if (error.code === 'auth/invalid-email') {
+        setLoginError('Invalid email address.');
+      } else if (error.code === 'auth/weak-password') {
+        setLoginError('Password should be at least 6 characters.');
+      } else if (error.code === 'auth/user-not-found') {
+        setLoginError('No account found with this email.');
+      } else if (error.code === 'auth/wrong-password') {
+        setLoginError('Incorrect password.');
+      } else {
+        setLoginError(error.message || 'An error occurred. Please try again.');
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoginError('');
+    setGoogleLoginLoading(true);
+
+    try {
+      await signInWithGoogle();
+      // Close login modal and open save dialog
+      setShowLoginModal(false);
+      setLoginEmail('');
+      setLoginPassword('');
+      setShowLoginPassword(false);
+      // Open save dialog after successful login
+      setShowSaveDialog(true);
+      setShowCreateFolderInput(false);
+      setNewFolderName('');
+      const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+      setFolders(savedFolders);
+    } catch (err: unknown) {
+      console.error('Google auth error:', err);
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/popup-closed-by-user') {
+        setLoginError('Sign-in was cancelled.');
+      } else if (error.code === 'auth/popup-blocked') {
+        setLoginError('Popup was blocked. Please allow popups for this site.');
+      } else {
+        setLoginError(error.message || 'Failed to sign in with Google. Please try again.');
+      }
+    } finally {
+      setGoogleLoginLoading(false);
+    }
   };
 
   const savePlay = async () => {
@@ -3332,24 +3416,8 @@ export default function Home() {
           </div>
         </div>
         
-        {/* Add 5 Purple Defensive Players Button */}
-        <div className="mt-auto border-t border-gray-200 p-4">
-          <button
-            onClick={addFivePurpleDefensivePlayers}
-            className="w-full px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors text-sm font-medium shadow-sm flex items-center justify-center gap-2 mb-4"
-            title="Add 5 Purple Defensive Players"
-          >
-            <span>Add 5 Defensive</span>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="w-3 h-3 rounded-full bg-white/30"></div>
-              ))}
-            </div>
-          </button>
-        </div>
-        
         {/* Play Notes Section */}
-        <div className="border-t border-gray-200 p-4">
+        <div className="mt-auto border-t border-gray-200 p-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Play Notes
           </label>
@@ -3372,13 +3440,16 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Animation:</span>
               <button
+                disabled={players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0}
                 className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
                   isAnimating 
                     ? 'bg-red-500 text-white hover:bg-red-600' 
-                    : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                    : (players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0)
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
                 }`}
                 onClick={isAnimating ? stopAnimation : startAnimation}
-                title={isAnimating ? "Stop Animation" : "Play Animation"}
+                title={isAnimating ? "Stop Animation" : (players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0) ? "Add elements to canvas first" : "Play Animation"}
               >
                 {isAnimating ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3464,9 +3535,14 @@ export default function Home() {
               <span className="text-sm font-medium text-gray-700">Play Options:</span>
               <div className="flex space-x-2">
                 <button
-                  className="w-10 h-10 bg-green-500 text-white rounded hover:bg-green-600 transition-colors flex items-center justify-center"
+                  disabled={players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0}
+                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
+                    (players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0)
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
                   onClick={openSaveDialog}
-                  title="Save Play"
+                  title={(players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0) ? "Add elements to canvas first" : "Save Play"}
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 256 256">
                     <path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31ZM160,72a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h56A8,8,0,0,1,160,72Z"></path>
@@ -3898,7 +3974,7 @@ export default function Home() {
           {/* Delete Selected Items Button */}
           {((selectedItems.players?.length || 0) > 0 || (selectedItems.routes?.length || 0) > 0 || (selectedItems.textBoxes?.length || 0) > 0 || (selectedItems.circles?.length || 0) > 0 || (selectedItems.footballs?.length || 0) > 0) && (
             <div
-              className="absolute top-24 right-6 z-20"
+              className="absolute top-4 left-6 z-20"
             >
               <button
                 onClick={deleteSelectedItems}
@@ -4070,9 +4146,27 @@ export default function Home() {
           {/* Bottom Toolbar: Player Icons (left) and Route Tools (right) */}
           <div className="bg-white border-t border-gray-200 flex flex-row flex-shrink-0 px-6 py-4">
             {/* Left Side: Player Icons in 2 rows */}
-            <div className="flex-1">
-              <div className="grid grid-cols-3 gap-1.5">
-                {colors.map((colorOption) => (
+            <div className="flex-1 flex flex-col justify-center items-center gap-1.5">
+              <div className="flex justify-between items-center w-full px-8">
+                {colors.slice(0, Math.ceil(colors.length / 2)).map((colorOption) => (
+                  <div
+                    key={colorOption.name}
+                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0 border-0`}
+                    onClick={() => {
+                      setSelectedColor(colorOption.name);
+                      addPlayerToCanvas(colorOption.name);
+                    }}
+                  >
+                    {colorOption.label && (
+                      <span className="text-white text-xs font-bold">
+                        {colorOption.label}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center w-full px-8">
+                {colors.slice(Math.ceil(colors.length / 2)).map((colorOption) => (
                   <div
                     key={colorOption.name}
                     className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0 border-0`}
@@ -4091,17 +4185,17 @@ export default function Home() {
                 <button
                   onClick={addAllPlayersToCanvas}
                   disabled={players.length > 0}
-                  className={`h-12 px-4 rounded flex items-center justify-center text-xs font-medium transition-transform border-0 ${
+                  className={`w-12 h-12 rounded flex items-center justify-center text-xs font-medium transition-transform border-0 ${
                     players.length > 0
                       ? 'bg-gray-50 text-gray-400 cursor-not-allowed opacity-50'
                       : 'bg-blue-500 hover:bg-blue-600 cursor-pointer text-white hover:scale-105'
                   }`}
                   title={players.length > 0 ? "Clear canvas first to add all positions" : "Add All Positions"}
                 >
-                  Add All
+                  <span className="text-[10px] leading-tight">Add All</span>
                 </button>
-      </div>
-      </div>
+              </div>
+            </div>
 
             {/* Right Side: Route Tools (1/3 width) */}
             <div className="w-1/3 border-l border-gray-200 pl-6">
@@ -5021,6 +5115,187 @@ export default function Home() {
                 {editingPlayId ? 'Update Play' : 'Save Play'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Login Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50">
+          {/* Subtle blur overlay */}
+          <div 
+            className="absolute inset-0 backdrop-blur-sm bg-black/20"
+            onClick={() => {
+              setShowLoginModal(false);
+              setLoginError('');
+            }}
+          ></div>
+          {/* Modal content */}
+          <div 
+            className="relative bg-white rounded-lg shadow-xl p-6 pb-8 w-full max-w-md mx-4 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button - X in top right, own row */}
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => {
+                  setShowLoginModal(false);
+                  setLoginError('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <h2 className="text-3xl font-bold mb-2 text-gray-900 text-center">
+              Save Plays. Share Plays. Win Games.
+            </h2>
+            <p className="text-sm text-gray-600 text-center mb-6">
+              {isSignUp ? (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setIsSignUp(false);
+                      setLoginError('');
+                    }}
+                    className="font-medium text-blue-600 hover:text-blue-500"
+                  >
+                    Sign in
+                  </button>
+                </>
+              ) : (
+                <>
+                  Don&apos;t have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setIsSignUp(true);
+                      setLoginError('');
+                    }}
+                    className="font-medium text-blue-600 hover:text-blue-500"
+                  >
+                    Sign up
+                  </button>
+                </>
+              )}
+            </p>
+            <form className="space-y-4" onSubmit={handleLoginSubmit}>
+              {loginError && (
+                <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm" role="alert">
+                  <span className="block sm:inline">{loginError}</span>
+                </div>
+              )}
+              <div className="rounded-md shadow-sm -space-y-px">
+                <div>
+                  <label htmlFor="login-email" className="sr-only">
+                    Email address
+                  </label>
+                  <input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Email address"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                  />
+                </div>
+                <div className="relative">
+                  <label htmlFor="login-password" className="sr-only">
+                    Password
+                  </label>
+                  <input
+                    id="login-password"
+                    name="password"
+                    type={showLoginPassword ? 'text' : 'password'}
+                    autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                    required
+                    className="appearance-none rounded-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowLoginPassword(!showLoginPassword);
+                    }}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 z-10 cursor-pointer"
+                    aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showLoginPassword ? (
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      </svg>
+                    ) : (
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  type="submit"
+                  disabled={loginLoading || googleLoginLoading}
+                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loginLoading ? 'Please wait...' : isSignUp ? 'Sign up' : 'Sign in'}
+                </button>
+                
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300" />
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                  </div>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={loginLoading || googleLoginLoading}
+                  className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {googleLoginLoading ? (
+                    'Please wait...'
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        />
+                      </svg>
+                      Sign in with Google
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

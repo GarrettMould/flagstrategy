@@ -122,6 +122,7 @@ function UserMenu() {
 export default function SharedFolderPage() {
   const params = useParams();
   const shareId = params.shareId as string;
+  const { user } = useAuth();
   const [sharedFolder, setSharedFolder] = useState<SharedFolder | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -238,6 +239,11 @@ export default function SharedFolderPage() {
     play.circles?.forEach(circle => {
       allPoints.push({ x: circle.x, y: circle.y });
     });
+
+    // Add football positions
+    play.footballs?.forEach(football => {
+      allPoints.push({ x: football.x, y: football.y });
+    });
     
     if (allPoints.length === 0) {
       return <div className="flex items-center justify-center h-full text-gray-400">No elements</div>;
@@ -273,7 +279,49 @@ export default function SharedFolderPage() {
     const offsetY = (containerHeight - scaledHeight) / 2 - (minY - padding) * scale;
 
     return (
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full bg-white">
+        {/* Football Field Lines */}
+        <div className="absolute inset-0">
+          {/* Yard Lines */}
+          <div className="absolute top-0 left-0 w-full h-full">
+            {/* 10-yard lines */}
+            <div className="absolute top-[10%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[20%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
+            
+            {/* Hash marks */}
+            <div className="absolute top-[5%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[5%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[15%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[15%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[25%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[25%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
+            <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
+            
+            {/* Sidelines */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
+            <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+          </div>
+        </div>
         {/* Routes */}
         {play.routes?.map((route) => {
           if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
@@ -398,6 +446,7 @@ export default function SharedFolderPage() {
         {/* Players */}
         {play.players.map((player) => {
           const colorOption = colors.find(c => c.name === player.color);
+          const isQB = player.color === 'qb';
           return (
             <div
               key={player.id}
@@ -405,17 +454,17 @@ export default function SharedFolderPage() {
               style={{
                 left: player.x * scale + offsetX,
                 top: player.y * scale + offsetY,
-                width: `${12 * scale}px`,
-                height: `${12 * scale}px`,
-                minWidth: '12px',
-                minHeight: '12px',
+                width: `${20 * scale}px`,
+                height: `${20 * scale}px`,
+                minWidth: '20px',
+                minHeight: '20px',
                 zIndex: 3,
               }}
             >
-              {colorOption?.label && (
+              {colorOption?.label && !isQB && (
                 <span 
                   className="text-white font-bold"
-                  style={{ fontSize: `${Math.max(8, 10 * scale)}px` }}
+                  style={{ fontSize: `${Math.max(10, 12 * scale)}px` }}
                 >
                   {colorOption.label}
                 </span>
@@ -456,6 +505,31 @@ export default function SharedFolderPage() {
             }}
           />
         ))}
+
+        {/* Footballs */}
+        {play.footballs?.map((football) => (
+          <div
+            key={football.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2"
+            style={{
+              left: football.x * scale + offsetX,
+              top: football.y * scale + offsetY,
+              width: `${football.size * scale}px`,
+              height: `${football.size * scale}px`,
+              zIndex: 3
+            }}
+          >
+            <img
+              src="/svgs/american-football.svg"
+              alt="Football"
+              width={football.size * scale}
+              height={football.size * scale}
+              style={{
+                objectFit: 'contain'
+              }}
+            />
+          </div>
+        ))}
       </div>
     );
   };
@@ -489,28 +563,76 @@ export default function SharedFolderPage() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Navigation */}
-      <div className="bg-white border-b border-gray-200 flex-shrink-0">
-        <div className="px-8 py-5 flex justify-between items-center max-w-full">
-          <div className="flex items-center">
-            <h1 className="text-lg font-bold text-gray-900">
-              Shared Folder: {sharedFolder.folderName}
-            </h1>
-          </div>
-          <div className="flex items-center space-x-8">
-            <Link 
-              href="/my-plays" 
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+        {/* Site Title */}
+        <div className="flex items-center">
+          <Link href="/" className="text-gray-800 font-bold text-lg tracking-tight hover:text-gray-900 transition-colors">
+            Flag Tactics
+          </Link>
+        </div>
+
+        {/* Navigation Links and Login/Logout */}
+        <div className="flex items-center gap-6">
+          <Link 
+            href="/builder" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            Play Builder
+          </Link>
+          <Link 
+            href="/my-plays" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            My Plays
+          </Link>
+          {!user ? (
+            <Link
+              href="/login"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
             >
-              My Plays
+              Sign Up / Log In
             </Link>
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-            >
-              Import to My Plays
-            </button>
-            <UserMenu />
+          ) : (
+            <>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+              >
+                Import to My Plays
+              </button>
+              <UserMenu />
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* Shared Folder Header */}
+      <div className="bg-white border-b border-gray-200 px-8 py-4 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-1">
+              {sharedFolder.folderName}
+            </h1>
+            <p className="text-sm text-gray-600">
+              {plays.length} {plays.length === 1 ? 'play' : 'plays'} shared with you
+            </p>
           </div>
+          {!user && (
+            <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-lg px-6 py-4">
+              <div className="flex-1">
+                <h3 className="text-base font-semibold text-gray-900 mb-1">Create your own plays!</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Sign up for free to build, organize, and share your own playbook.
+                </p>
+                <Link
+                  href="/login"
+                  className="inline-block px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
+                >
+                  Get Started Free
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       
@@ -530,22 +652,7 @@ export default function SharedFolderPage() {
                 className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200"
               >
                 {/* Play Preview */}
-                <div className="w-full bg-green-100 relative" style={{ height: '300px', aspectRatio: '4/3' }}>
-                  {/* Field Lines */}
-                  <div className="absolute inset-0 opacity-20">
-                    {/* Yard Lines */}
-                    {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
-                      <div
-                        key={percent}
-                        className="absolute left-0 right-0 bg-white"
-                        style={{ top: `${percent}%`, height: '1px' }}
-                      />
-                    ))}
-                    {/* Sidelines */}
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-white"></div>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-white"></div>
-                  </div>
-
+                <div className="w-full bg-white relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
                   {/* Play Content */}
                   {renderPlayPreview(play)}
                 </div>

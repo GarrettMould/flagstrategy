@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { loadUserData, saveUserData, UserData, SavedPlay, createShareableLink } from '../firebase';
+import { loadUserData, saveUserData, UserData, SavedPlay, createShareableLink, signUp, logIn, signInWithGoogle } from '../firebase';
 
 interface Player {
   id: string;
@@ -122,6 +122,7 @@ function UserMenu() {
 export default function MyPlays() {
   const { user, loading: authLoading, logout } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
 
   const handleLogout = async () => {
     try {
@@ -158,22 +159,60 @@ export default function MyPlays() {
   const [showRenameFolderModal, setShowRenameFolderModal] = useState<boolean>(false);
   const [folderToRename, setFolderToRename] = useState<{ id: string; name: string } | null>(null);
   const [renameFolderInput, setRenameFolderInput] = useState<string>('');
+  const [showShareModal, setShowShareModal] = useState<boolean>(false);
+  const [shareUrl, setShareUrl] = useState<string>('');
+  const [shareError, setShareError] = useState<string | null>(null);
 
   // Load user data from Firestore when user logs in
   useEffect(() => {
     const loadData = async () => {
       if (user && !authLoading) {
-        // Load from Firebase first
+        // Load from both Firebase and localStorage, then merge
         try {
           const userData = await loadUserData(user.uid);
-          if (userData) {
-            // Update state with Firebase data
-            setSavedPlays(userData.savedPlays || []);
-            setFolders(userData.folders || []);
-            
-            // Update localStorage with cloud data (for compatibility)
-            localStorage.setItem('savedPlays', JSON.stringify(userData.savedPlays || []));
-            localStorage.setItem('playFolders', JSON.stringify(userData.folders || []));
+          const localPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+          const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+          
+          // Merge plays: combine Firebase and localStorage plays, with local taking precedence for duplicates
+          let mergedPlays = localPlays;
+          if (userData && userData.savedPlays && userData.savedPlays.length > 0) {
+            const localPlayIds = new Set(localPlays.map((p: SavedPlay) => p.id));
+            const firebasePlaysToAdd = userData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
+            mergedPlays = [...firebasePlaysToAdd, ...localPlays];
+          }
+          
+          // Merge folders: combine Firebase and localStorage folders, with local taking precedence for duplicates
+          let mergedFolders = localFolders;
+          if (userData && userData.folders && userData.folders.length > 0) {
+            const localFolderIds = new Set(localFolders.map((f: Folder) => f.id));
+            const firebaseFoldersToAdd = userData.folders.filter((f: Folder) => !localFolderIds.has(f.id));
+            mergedFolders = [...firebaseFoldersToAdd, ...localFolders];
+          }
+          
+          // Update state with merged data
+          setSavedPlays(mergedPlays);
+          setFolders(mergedFolders);
+          
+          // Update localStorage with merged data
+          localStorage.setItem('savedPlays', JSON.stringify(mergedPlays));
+          localStorage.setItem('playFolders', JSON.stringify(mergedFolders));
+          
+          // If merged data differs from Firebase, sync back to Firebase
+          if (userData && (
+            JSON.stringify(mergedPlays) !== JSON.stringify(userData.savedPlays || []) ||
+            JSON.stringify(mergedFolders) !== JSON.stringify(userData.folders || [])
+          )) {
+            try {
+              const userDataToSave: UserData = {
+                savedPlays: mergedPlays,
+                folders: mergedFolders,
+                updatedAt: new Date().toISOString()
+              };
+              await saveUserData(user.uid, userDataToSave);
+              console.log('Synced merged data back to Firebase');
+            } catch (syncError) {
+              console.error('Error syncing merged data to Firebase:', syncError);
+            }
           }
         } catch (error) {
           console.error('Error loading user data from Firebase:', error);
@@ -231,10 +270,22 @@ export default function MyPlays() {
   }, [menuOpenForPlay, folderMenuOpen, folderCardMenuOpen]);
 
   // Helper functions for folder navigation
-  const getFoldersInCurrentFolder = (parentId: string | null): Folder[] => {
+  const getFoldersInCurrentFolder = (parentId: string | null): (Folder | { id: string; name: string; createdAt: string; parentFolderId: null; isAllPlays: boolean })[] => {
     // Handle both null and undefined for backward compatibility
     if (parentId === null) {
-      return folders.filter(f => !f.parentFolderId || f.parentFolderId === null);
+      // At root level, include "All Plays" as the first folder
+      const allPlaysFolder = {
+        id: '__all_plays__',
+        name: 'All Plays',
+        createdAt: new Date(0).toISOString(),
+        parentFolderId: null as null,
+        isAllPlays: true
+      };
+      return [allPlaysFolder, ...folders.filter(f => !f.parentFolderId || f.parentFolderId === null)];
+    }
+    if (parentId === '__all_plays__') {
+      // "All Plays" folder doesn't contain other folders, only plays
+      return [];
     }
     return folders.filter(f => f.parentFolderId === parentId);
   };
@@ -242,7 +293,12 @@ export default function MyPlays() {
   const getPlaysInCurrentFolder = (folderId: string | null): SavedPlay[] => {
     // Handle both null and undefined for backward compatibility
     if (folderId === null) {
-      return savedPlays.filter(play => !play.folderId || play.folderId === null);
+      // Root level - no plays shown (only folders)
+      return [];
+    }
+    if (folderId === '__all_plays__') {
+      // "All Plays" folder shows all plays
+      return savedPlays;
     }
     return savedPlays.filter(play => play.folderId === folderId);
   };
@@ -253,6 +309,9 @@ export default function MyPlays() {
     
     // Build breadcrumb path
     if (folderId === null) {
+      setFolderPath([]);
+    } else if (folderId === '__all_plays__') {
+      // "All Plays" is a special folder, no breadcrumb path
       setFolderPath([]);
     } else {
       const path: Folder[] = [];
@@ -281,6 +340,9 @@ export default function MyPlays() {
   };
 
   const toggleFolderExpansion = (folderId: string) => {
+    // Don't allow expansion of "All Plays"
+    if (folderId === '__all_plays__') return;
+    
     const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(folderId)) {
       newExpanded.delete(folderId);
@@ -291,20 +353,29 @@ export default function MyPlays() {
   };
 
   // Get folder tree structure for sidebar
-  const getFolderTree = (parentId: string | null, level: number = 0): Array<Folder & { level: number }> => {
+  const getFolderTree = (parentId: string | null, level: number = 0): Array<(Folder | { id: string; name: string; createdAt: string; parentFolderId: null; isAllPlays: boolean }) & { level: number }> => {
     // Handle both null and undefined for backward compatibility
-    let children: Folder[];
+    let children: (Folder | { id: string; name: string; createdAt: string; parentFolderId: null; isAllPlays: boolean })[];
     if (parentId === null) {
-      children = folders.filter(f => !f.parentFolderId || f.parentFolderId === null);
+      // At root level, include "All Plays" as the first folder
+      const allPlaysFolder = {
+        id: '__all_plays__',
+        name: 'All Plays',
+        createdAt: new Date(0).toISOString(),
+        parentFolderId: null as null,
+        isAllPlays: true
+      };
+      children = [allPlaysFolder, ...folders.filter(f => !f.parentFolderId || f.parentFolderId === null)];
     } else {
       children = folders.filter(f => f.parentFolderId === parentId);
     }
     
-    const result: Array<Folder & { level: number }> = [];
+    const result: Array<(Folder | { id: string; name: string; createdAt: string; parentFolderId: null; isAllPlays: boolean }) & { level: number }> = [];
     
     children.forEach(folder => {
       result.push({ ...folder, level });
-      if (expandedFolders.has(folder.id)) {
+      // Only expand regular folders, not "All Plays"
+      if (!('isAllPlays' in folder) && expandedFolders.has(folder.id)) {
         result.push(...getFolderTree(folder.id, level + 1));
       }
     });
@@ -333,17 +404,21 @@ export default function MyPlays() {
   };
 
   // Get play count for a folder (including nested folders)
-  const getPlayCount = (folderId: string | null): number => {
-    if (folderId === null) {
-      // Count all plays not in any folder
-      return savedPlays.filter(play => !play.folderId).length;
+  const getPlayCount = (folderId: string | null | string): number => {
+    if (folderId === null || folderId === '__all_plays__') {
+      // "All Plays" shows all plays
+      return savedPlays.length;
     }
     // Count plays directly in this folder
     return savedPlays.filter(play => play.folderId === folderId).length;
   };
 
   // Get folder count (subfolders) for a folder
-  const getFolderCount = (folderId: string | null): number => {
+  const getFolderCount = (folderId: string | null | string): number => {
+    if (folderId === '__all_plays__') {
+      // "All Plays" shows count of root folders
+      return folders.filter(f => !f.parentFolderId || f.parentFolderId === null).length;
+    }
     return folders.filter(f => f.parentFolderId === folderId).length;
   };
 
@@ -466,29 +541,16 @@ export default function MyPlays() {
     setShowDeleteModal(false);
     setPlayToDelete(null);
     
-    // Sync to Firebase in background (don't await)
+    // Sync to Firebase - await to ensure deletion is saved before any reload
     if (user) {
-      (async () => {
         try {
-          // Load existing data from Firebase to merge properly
+        // Load existing data from Firebase to get folders
           const existingData = await loadUserData(user.uid);
-          let mergedPlays = updatedPlays;
-          
-          if (existingData && existingData.savedPlays.length > 0) {
-            // Merge plays: keep existing plays that aren't in local, update/keep local plays
-            const existingPlayIds = new Set(existingData.savedPlays.map((p: SavedPlay) => p.id));
-            const localPlayIds = new Set(updatedPlays.map((p: SavedPlay) => p.id));
-            
-            // Keep existing plays that aren't in local array
-            const playsToKeep = existingData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
-            
-            // Merge: combine kept plays with local plays
-            mergedPlays = [...playsToKeep, ...updatedPlays];
-          }
-          
+        
+        // Save the updated plays directly to Firebase (no merging - deleted play should be removed)
           const userData: UserData = {
-            savedPlays: mergedPlays,
-            folders: folders,
+          savedPlays: updatedPlays, // Use the filtered plays directly
+          folders: existingData?.folders || folders,
             updatedAt: new Date().toISOString()
           };
           
@@ -496,9 +558,9 @@ export default function MyPlays() {
           console.log('Play deleted from Firebase successfully');
         } catch (error) {
           console.error('Error syncing play deletion to Firebase:', error);
-          // Don't block the UI - deletion from localStorage already happened
+        // Keep local deletion but warn user - they may need to delete again
+        alert('Play deleted locally but failed to sync to cloud. The play may reappear after refresh. Please try again.');
         }
-      })();
     }
   };
 
@@ -510,24 +572,39 @@ export default function MyPlays() {
   // Share folder
   const handleShareFolder = async (folderId: string, folderName: string) => {
     try {
-      const folderPlays = savedPlays.filter(play => play.folderId === folderId);
+      let playsToShare: SavedPlay[];
       
-      if (folderPlays.length === 0) {
-        alert('This folder is empty. Add some plays before sharing.');
-        setFolderMenuOpen(null);
+      if (folderId === '__all_plays__') {
+        // Share all plays
+        playsToShare = savedPlays;
+        folderName = 'All Plays';
+      } else {
+        // Share plays in specific folder
+        playsToShare = savedPlays.filter(play => play.folderId === folderId);
+      }
+      
+      if (playsToShare.length === 0) {
+        setShareError('This folder is empty. Add some plays before sharing.');
+        setShowShareModal(true);
+        setFolderCardMenuOpen(null);
         return;
       }
       
-      const shareUrl = await createShareableLink(folderId, folderName, folderPlays);
+      const url = await createShareableLink(folderId, folderName, playsToShare);
+      setShareUrl(url);
+      setShareError(null);
+      setShowShareModal(true);
+      setFolderCardMenuOpen(null);
       
       // Copy to clipboard
-      navigator.clipboard.writeText(shareUrl);
-      alert(`Share link copied to clipboard!\n\n${shareUrl}`);
-      setFolderMenuOpen(null);
+      navigator.clipboard.writeText(url);
     } catch (error) {
       console.error('Error creating share link:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Failed to create share link.\n\nError: ${errorMessage}\n\nCheck:\n1. Firestore security rules are set\n2. Browser console for details`);
+      setShareError(`Failed to create share link.\n\nError: ${errorMessage}\n\nCheck:\n1. Firestore security rules are set\n2. Browser console for details`);
+      setShareUrl('');
+      setShowShareModal(true);
+      setFolderCardMenuOpen(null);
     }
   };
 
@@ -608,11 +685,6 @@ export default function MyPlays() {
       } catch (error) {
         console.error('Error syncing folder deletion to Firebase:', error);
       }
-    }
-    
-    // If the deleted folder was selected, switch to All Plays
-    if (selectedFolder === folderId) {
-      setSelectedFolder(null);
     }
     
     setFolderMenuOpen(null);
@@ -1242,6 +1314,278 @@ export default function MyPlays() {
     );
   };
 
+  // Login form state for unauthenticated users
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(true); // Default to sign up mode
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+
+    try {
+      if (isSignUp) {
+        await signUp(loginEmail, loginPassword);
+      } else {
+        await logIn(loginEmail, loginPassword);
+      }
+      // Redirect to my-plays page after successful login
+      router.push('/my-plays');
+    } catch (err: unknown) {
+      console.error('Auth error:', err);
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/email-already-in-use') {
+        setLoginError('This email is already registered. Please sign in instead.');
+      } else if (error.code === 'auth/invalid-email') {
+        setLoginError('Invalid email address.');
+      } else if (error.code === 'auth/weak-password') {
+        setLoginError('Password should be at least 6 characters.');
+      } else if (error.code === 'auth/user-not-found') {
+        setLoginError('No account found with this email.');
+      } else if (error.code === 'auth/wrong-password') {
+        setLoginError('Incorrect password.');
+      } else {
+        setLoginError(error.message || 'An error occurred. Please try again.');
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoginError('');
+    setGoogleLoginLoading(true);
+
+    try {
+      await signInWithGoogle();
+      // Redirect to my-plays page after successful login
+      router.push('/my-plays');
+    } catch (err: unknown) {
+      console.error('Google auth error:', err);
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/popup-closed-by-user') {
+        setLoginError('Sign-in was cancelled.');
+      } else if (error.code === 'auth/popup-blocked') {
+        setLoginError('Popup was blocked. Please allow popups for this site.');
+      } else {
+        setLoginError(error.message || 'Failed to sign in with Google. Please try again.');
+      }
+    } finally {
+      setGoogleLoginLoading(false);
+    }
+  };
+
+  // Show login page if user is not logged in
+  if (!authLoading && !user) {
+    return (
+      <div className="h-screen flex flex-col bg-gray-50">
+        {/* Navigation */}
+        <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+          {/* Site Title */}
+          <div className="flex items-center">
+            <Link href="/" className="text-gray-800 font-bold text-lg tracking-tight hover:text-gray-900 transition-colors">
+              Flag Tactics
+            </Link>
+          </div>
+
+          {/* Navigation Links (no login button) */}
+          <div className="flex items-center gap-6">
+            <Link 
+              href="/builder" 
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/builder' 
+                  ? 'text-gray-900' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Play Builder
+            </Link>
+            <Link 
+              href="/my-plays" 
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/my-plays' 
+                  ? 'text-gray-900' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              My Plays
+            </Link>
+          </div>
+        </header>
+
+        {/* Login Form Content */}
+        <div className="flex-1 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-md w-full space-y-8">
+            <div>
+              <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                Save Plays. Share Plays. Win Games.
+              </h2>
+              <p className="mt-2 text-center text-sm text-gray-600">
+                {isSignUp ? (
+                  <>
+                    Already have an account?{' '}
+                    <button
+                      onClick={() => {
+                        setIsSignUp(false);
+                        setLoginError('');
+                      }}
+                      className="font-medium text-blue-600 hover:text-blue-500"
+                    >
+                      Sign in
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Don&apos;t have an account?{' '}
+                    <button
+                      onClick={() => {
+                        setIsSignUp(true);
+                        setLoginError('');
+                      }}
+                      className="font-medium text-blue-600 hover:text-blue-500"
+                    >
+                      Sign up
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
+          <form className="mt-8 space-y-6" onSubmit={handleLoginSubmit}>
+            {loginError && (
+              <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <span className="block sm:inline">{loginError}</span>
+              </div>
+            )}
+            <div className="rounded-md shadow-sm -space-y-px">
+              <div>
+                <label htmlFor="email-address" className="sr-only">
+                  Email address
+                </label>
+                <input
+                  id="email-address"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                  placeholder="Email address"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                />
+              </div>
+              <div className="relative">
+                <label htmlFor="password" className="sr-only">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type={showLoginPassword ? 'text' : 'password'}
+                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  required
+                  className="appearance-none rounded-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                  placeholder="Password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowLoginPassword(!showLoginPassword);
+                  }}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 z-10 cursor-pointer"
+                  aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showLoginPassword ? (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                type="submit"
+                disabled={loginLoading || googleLoginLoading}
+                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loginLoading ? 'Please wait...' : isSignUp ? 'Sign up' : 'Sign in'}
+              </button>
+              
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-gray-50 text-gray-500">Or continue with</span>
+                </div>
+              </div>
+              
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={loginLoading || googleLoginLoading}
+                className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {googleLoginLoading ? (
+                  'Please wait...'
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      />
+                    </svg>
+                    Sign in with Google
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <p className="text-lg text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Navigation */}
@@ -1330,19 +1674,6 @@ export default function MyPlays() {
           New Play
         </button>
 
-        {/* Create Folder Button */}
-        <button
-          onClick={() => {
-            setNewFolderInput('');
-            setShowCreateFolderModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Folder
-        </button>
 
         {/* View Toggle */}
         <div className="flex items-center gap-1 ml-auto border border-gray-200 rounded-lg p-1">
@@ -1370,38 +1701,73 @@ export default function MyPlays() {
       </div>
                   
       {/* Main Content Area - Sidebar + Grid */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Expand Sidebar Button - Only visible when collapsed */}
+        {sidebarCollapsed && (
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white border-r border-t border-b border-gray-200 rounded-r-lg p-2 shadow-sm hover:bg-gray-50 transition-colors"
+            title="Expand sidebar"
+          >
+            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+
         {/* Sidebar */}
         <div className={`${sidebarCollapsed ? 'w-0' : 'w-64'} bg-white border-r border-gray-200 flex flex-col transition-all duration-200 overflow-hidden`}>
-          <div className="p-4 border-b border-gray-200">
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Navigation</span>
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="w-full flex items-center justify-between text-sm font-medium text-gray-700 hover:text-gray-900"
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+              title="Collapse sidebar"
             >
-              <span>Folders</span>
-              <svg className={`w-4 h-4 transition-transform ${sidebarCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4 h-4 text-gray-600 transition-transform ${sidebarCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
-            {/* All Plays */}
+            {/* Home Button */}
             <button
               onClick={() => navigateToFolder(null)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors mb-2 ${
                 currentFolderId === null ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              <span>Home</span>
+            </button>
+
+            {/* All Plays Folder */}
+            <div className="flex items-center gap-1 mb-2">
+              <div className="w-5" /> {/* Spacer to align with folders that have expand buttons */}
+              <button
+                onClick={() => navigateToFolder('__all_plays__')}
+                className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+                  currentFolderId === '__all_plays__' ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
               <span>All Plays</span>
             </button>
+            </div>
             
-            {/* Folder Tree */}
-            {getFolderTree(null).map((folder) => (
+            {/* Folder Tree - Regular folders only */}
+            {getFolderTree(null)
+              .filter(folder => !('isAllPlays' in folder))
+              .map((folder) => {
+                const hasChildren = folders.some(f => f.parentFolderId === folder.id);
+                return (
               <div key={folder.id} style={{ paddingLeft: `${folder.level * 16}px` }}>
                 <div className="flex items-center gap-1">
+                    {hasChildren ? (
                   <button
                     onClick={() => toggleFolderExpansion(folder.id)}
                     className="p-1 hover:bg-gray-100 rounded"
@@ -1415,6 +1781,9 @@ export default function MyPlays() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
+                    ) : (
+                      <div className="w-5" /> // Spacer to align with folders that have expand buttons
+                    )}
                   <button
                     onClick={() => navigateToFolder(folder.id)}
                     className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
@@ -1428,22 +1797,192 @@ export default function MyPlays() {
                   </button>
                 </div>
               </div>
-            ))}
+              )})}
           </div>
         </div>
 
         {/* Main Content Grid */}
         <div className="flex-1 overflow-y-auto p-6">
           {viewMode === 'grid' ? (
+            <>
+              {/* New Folder Button and Subfolders Row - When inside folders */}
+              {currentFolderId !== null && currentFolderId !== '__all_plays__' && (
+                <div className="mb-6 flex items-center gap-4 flex-wrap">
+                  {/* New Folder Button */}
+                  <button
+                    onClick={() => {
+                      setNewFolderInput('');
+                      setShowCreateFolderModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all text-sm font-medium text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    New Folder
+                  </button>
+                  
+                  {/* Subfolders in the same row */}
+                  {foldersInCurrentFolder.map((folder, index) => {
+                    const isAllPlays = 'isAllPlays' in folder && folder.isAllPlays;
+                    const folderId = isAllPlays ? '__all_plays__' : folder.id;
+                    const colorIndex = isAllPlays ? -1 : (index - 1);
+                    return (
+                      <div
+                        key={folder.id}
+                        className="relative group flex items-center gap-2 px-4 py-2 pr-10 bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer min-w-[180px]"
+                        onClick={() => navigateToFolder(folderId)}
+                      >
+                        {/* Three Dots Menu Button */}
+                        <div className="absolute top-1/2 right-1 -translate-y-1/2 z-20" onClick={(e) => e.stopPropagation()} data-folder-card-menu>
+                          {!isAllPlays && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFolderCardMenuOpen(folderCardMenuOpen === folder.id ? null : folder.id);
+                              }}
+                              className="flex items-center justify-center hover:bg-gray-100 transition-colors rounded p-1"
+                              data-folder-card-menu
+                            >
+                              <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                              </svg>
+                            </button>
+                          )}
+
+                          {/* Dropdown Menu */}
+                          {folderCardMenuOpen === folder.id && (
+                            <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-xl z-30 min-w-[160px] py-1" data-folder-card-menu>
+                              {isAllPlays ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleShareFolder('__all_plays__', 'All Plays');
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                  data-folder-card-menu
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                  </svg>
+                                  Share
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditFolderName(folder.id, folder.name);
+                                      setFolderCardMenuOpen(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                    Rename
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleShareFolder(folder.id, folder.name);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                    </svg>
+                                    Share
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const folderPlays = savedPlays.filter(p => p.folderId === folder.id);
+                                      folderPlays.forEach((play, index) => {
+                                        setTimeout(() => {
+                                          downloadPlayAsJPG(play);
+                                        }, index * 500);
+                                      });
+                                      setFolderCardMenuOpen(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    Download
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteFolder(folder.id);
+                                      setFolderCardMenuOpen(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Delete Forever
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Folder Icon and Name */}
+                        <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
+                        </div>
+                        <span className="text-sm font-medium text-gray-900">{folder.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-              {/* Folder Cards */}
-              {foldersInCurrentFolder.map((folder, index) => (
+                {/* Create New Folder Card - Only at root level */}
+                {currentFolderId === null && (
+                  <div
+                    className="relative group bg-white border-2 border-dashed border-gray-300 rounded-lg overflow-visible shadow-sm hover:shadow-md hover:border-gray-400 transition-all duration-200 cursor-pointer"
+                    onClick={() => {
+                      setNewFolderInput('');
+                      setShowCreateFolderModal(true);
+                    }}
+                  >
+                    <div className="p-6 flex flex-col items-center justify-center min-h-[200px]">
+                      <div className="w-16 h-16 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center mb-4">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </div>
+                      <h3 className="text-base font-semibold text-gray-600 mb-1 text-center">New Folder</h3>
+                      <p className="text-sm text-gray-400">Click to create</p>
+                    </div>
+                  </div>
+                )}
+
+              {/* Folder Cards - includes "All Plays" - Only show at root level or All Plays */}
+              {(currentFolderId === null || currentFolderId === '__all_plays__') && foldersInCurrentFolder.map((folder, index) => {
+                const isAllPlays = 'isAllPlays' in folder && folder.isAllPlays;
+                const folderId = isAllPlays ? '__all_plays__' : folder.id;
+                // Adjust index for color - skip "All Plays" in color calculation
+                const colorIndex = isAllPlays ? -1 : (index - 1);
+                return (
                 <div
                   key={folder.id}
                   className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer"
-                  onClick={() => navigateToFolder(folder.id)}
+                  onClick={() => navigateToFolder(folderId)}
                 >
-                  {/* Three Dots Menu Button */}
+                  {/* Three Dots Menu Button - For all folders including "All Plays" */}
                   <div className="absolute top-2 right-2 z-20" onClick={(e) => e.stopPropagation()} data-folder-card-menu>
                     <button
                       onClick={(e) => {
@@ -1461,6 +2000,24 @@ export default function MyPlays() {
                     {/* Dropdown Menu */}
                     {folderCardMenuOpen === folder.id && (
                       <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-lg shadow-xl z-30 min-w-[160px] py-1" data-folder-card-menu>
+                        {isAllPlays ? (
+                          // "All Plays" only has Share option
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleShareFolder('__all_plays__', 'All Plays');
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                            data-folder-card-menu
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                            </svg>
+                            Share
+                          </button>
+                        ) : (
+                          // Regular folders have all options
+                          <>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1474,6 +2031,19 @@ export default function MyPlays() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                           </svg>
                           Rename
+                        </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleShareFolder(folder.id, folder.name);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                              data-folder-card-menu
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                              </svg>
+                              Share
                         </button>
                         <button
                           onClick={(e) => {
@@ -1489,10 +2059,10 @@ export default function MyPlays() {
                           className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
                           data-folder-card-menu
                         >
-                          Download
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
+                              Download
                         </button>
                         <button
                           onClick={(e) => {
@@ -1508,25 +2078,27 @@ export default function MyPlays() {
                           </svg>
                           Delete Forever
                         </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
 
                   {/* Folder Icon */}
                   <div className="p-6 flex flex-col items-center justify-center min-h-[200px]">
-                    <div className={`w-16 h-16 ${getFolderColor(index)} rounded-lg flex items-center justify-center mb-4`}>
+                    <div className={`w-16 h-16 ${isAllPlays ? 'bg-gray-500' : getFolderColor(colorIndex >= 0 ? colorIndex : 0)} rounded-lg flex items-center justify-center mb-4`}>
                       <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                       </svg>
                     </div>
                     <h3 className="text-base font-semibold text-gray-900 mb-1 text-center">{folder.name}</h3>
-                    <p className="text-sm text-gray-500">{getPlayCount(folder.id)} plays, {getFolderCount(folder.id)} folders</p>
+                    <p className="text-sm text-gray-500">{getPlayCount(folderId)} plays{!isAllPlays && `, ${getFolderCount(folderId)} folders`}</p>
                   </div>
                 </div>
-              ))}
+              )})}
 
-              {/* Play Cards */}
-              {filteredPlays.map((play) => (
+              {/* Play Cards - Only show when inside a folder (not at root) */}
+              {currentFolderId !== null && filteredPlays.map((play) => (
               <div
                 key={play.id}
                 className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200"
@@ -1538,7 +2110,7 @@ export default function MyPlays() {
                       e.stopPropagation();
                       setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
                     }}
-                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors z-10"
+                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors z-10"
                   >
                     <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
@@ -1553,8 +2125,11 @@ export default function MyPlays() {
                           e.stopPropagation();
                           editPlay(play.id);
                         }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
                       >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
                         Edit Play
                       </button>
                       <button
@@ -1565,18 +2140,21 @@ export default function MyPlays() {
                         }}
                         className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
                       >
-                        Download Play
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
+                        Download Play
                       </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           openAddToFolderModal(play.id);
                         }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
                       >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
                         Add Play to Folder
                       </button>
                   <button
@@ -1584,8 +2162,11 @@ export default function MyPlays() {
                       e.stopPropagation();
                           openDeleteModal(play.id);
                     }}
-                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
                   >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
                         Delete Play
                   </button>
                   </div>
@@ -1649,19 +2230,452 @@ export default function MyPlays() {
               </div>
               ))}
             </div>
+            </>
           ) : (
-            <div className="p-4">
-              <p className="text-gray-500">List view coming soon</p>
+            <div className="space-y-2">
+              {/* New Folder Button and Subfolders Row - When inside folders */}
+              {currentFolderId !== null && currentFolderId !== '__all_plays__' && (
+                <div className="mb-6 flex items-center gap-4 flex-wrap">
+                  {/* New Folder Button */}
+                  <button
+                    onClick={() => {
+                      setNewFolderInput('');
+                      setShowCreateFolderModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all text-sm font-medium text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    New Folder
+                  </button>
+                  
+                  {/* Subfolders in the same row */}
+                  {foldersInCurrentFolder.map((folder, index) => {
+                    const isAllPlays = 'isAllPlays' in folder && folder.isAllPlays;
+                    const folderId = isAllPlays ? '__all_plays__' : folder.id;
+                    const colorIndex = isAllPlays ? -1 : (index - 1);
+                    return (
+                      <div
+                        key={folder.id}
+                        className="relative group flex items-center gap-2 px-4 py-2 pr-10 bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer min-w-[180px]"
+                        onClick={() => navigateToFolder(folderId)}
+                      >
+                        {/* Three Dots Menu Button */}
+                        <div className="absolute top-1/2 right-1 -translate-y-1/2 z-20" onClick={(e) => e.stopPropagation()} data-folder-card-menu>
+                          {!isAllPlays && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFolderCardMenuOpen(folderCardMenuOpen === folder.id ? null : folder.id);
+                              }}
+                              className="flex items-center justify-center hover:bg-gray-100 transition-colors rounded p-1"
+                              data-folder-card-menu
+                            >
+                              <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                              </svg>
+                            </button>
+                          )}
+
+                          {/* Dropdown Menu */}
+                          {folderCardMenuOpen === folder.id && (
+                            <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-xl z-30 min-w-[160px] py-1" data-folder-card-menu>
+                              {isAllPlays ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleShareFolder('__all_plays__', 'All Plays');
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                  data-folder-card-menu
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                  </svg>
+                                  Share
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditFolderName(folder.id, folder.name);
+                                      setFolderCardMenuOpen(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                    Rename
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleShareFolder(folder.id, folder.name);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                    </svg>
+                                    Share
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const folderPlays = savedPlays.filter(p => p.folderId === folder.id);
+                                      folderPlays.forEach((play, index) => {
+                                        setTimeout(() => {
+                                          downloadPlayAsJPG(play);
+                                        }, index * 500);
+                                      });
+                                      setFolderCardMenuOpen(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    Download
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteFolder(folder.id);
+                                      setFolderCardMenuOpen(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                                    data-folder-card-menu
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Delete Forever
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Folder Icon and Name */}
+                        <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
+                        </div>
+                        <span className="text-sm font-medium text-gray-900">{folder.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Create New Folder - List View - Only at root level */}
+              {currentFolderId === null && (
+                <div
+                  className="flex items-center gap-4 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all cursor-pointer"
+                  onClick={() => {
+                    setNewFolderInput('');
+                    setShowCreateFolderModal(true);
+                  }}
+                >
+                  <div className="w-12 h-12 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-semibold text-gray-600">New Folder</h3>
+                    <p className="text-sm text-gray-400">Click to create a new folder</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Folder List - Only show at root level or All Plays */}
+              {(currentFolderId === null || currentFolderId === '__all_plays__') && foldersInCurrentFolder.map((folder) => {
+                const isAllPlays = 'isAllPlays' in folder && folder.isAllPlays;
+                const folderId = isAllPlays ? '__all_plays__' : folder.id;
+                const colorIndex = isAllPlays ? -1 : (foldersInCurrentFolder.indexOf(folder) - 1);
+                return (
+                  <div
+                    key={folder.id}
+                    className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:shadow-sm transition-all cursor-pointer group relative"
+                    onClick={() => navigateToFolder(folderId)}
+                  >
+                    {/* Three Dots Menu Button */}
+                    <div className="absolute top-1/2 right-2 -translate-y-1/2 z-20" data-menu-container>
+                      {!isAllPlays && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFolderCardMenuOpen(folderCardMenuOpen === folder.id ? null : folder.id);
+                          }}
+                          className="flex items-center justify-center hover:bg-gray-100 transition-colors rounded p-1"
+                        >
+                          <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                          </svg>
+                        </button>
+                      )}
+
+                      {/* Dropdown Menu */}
+                      {folderCardMenuOpen === folder.id && (
+                        <div className="absolute top-8 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
+                          {isAllPlays ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleShareFolder('__all_plays__', 'All Plays');
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                              data-folder-card-menu
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                              </svg>
+                              Share
+                            </button>
+                          ) : (
+                            // Regular folders have all options
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditFolderName(folder.id, folder.name);
+                                  setFolderCardMenuOpen(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                data-folder-card-menu
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Rename
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleShareFolder(folder.id, folder.name);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                data-folder-card-menu
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                </svg>
+                                Share
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const folderPlays = savedPlays.filter(p => p.folderId === folder.id);
+                                  folderPlays.forEach((play, index) => {
+                                    setTimeout(() => {
+                                      downloadPlayAsJPG(play);
+                                    }, index * 500);
+                                  });
+                                  setFolderCardMenuOpen(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                data-folder-card-menu
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                Download
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteFolder(folder.id);
+                                  setFolderCardMenuOpen(null);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                                data-folder-card-menu
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete Forever
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Folder Icon */}
+                    <div className={`w-12 h-12 ${isAllPlays ? 'bg-gray-500' : getFolderColor(colorIndex >= 0 ? colorIndex : 0)} rounded-lg flex items-center justify-center flex-shrink-0`}>
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-semibold text-gray-900 truncate">{folder.name}</h3>
+                      <p className="text-sm text-gray-500">{getPlayCount(folderId)} plays{!isAllPlays && `, ${getFolderCount(folderId)} folders`}</p>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Play List - Only show when inside a folder */}
+              {currentFolderId !== null && filteredPlays.map((play) => (
+                <div
+                  key={play.id}
+                  className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:shadow-sm transition-all group relative"
+                >
+                  {/* Three Dots Menu Button */}
+                  <div className="absolute top-1/2 right-2 -translate-y-1/2 z-20" data-menu-container>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
+                      }}
+                      className="flex items-center justify-center hover:bg-gray-100 transition-colors rounded p-1"
+                    >
+                      <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                      </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {menuOpenForPlay === play.id && (
+                      <div className="absolute top-8 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            editPlay(play.id);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          Edit Play
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadPlayAsJPG(play);
+                            setMenuOpenForPlay(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download Play
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openAddToFolderModal(play.id);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
+                          Add Play to Folder
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDeleteModal(play.id);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete Play
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Play Icon - Generic Y with route */}
+                  <div className="w-16 h-16 bg-green-100 rounded-lg flex-shrink-0 flex items-center justify-center">
+                    <svg className="w-12 h-12" viewBox="0 0 100 100" fill="none">
+                      {/* Y shape route */}
+                      <path
+                        d="M 50 80 L 50 50 L 30 30 M 50 50 L 70 30"
+                        stroke="black"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      {/* Arrow at top of Y */}
+                      <path
+                        d="M 30 30 L 25 25 M 30 30 L 25 35 M 70 30 L 75 25 M 70 30 L 75 35"
+                        stroke="black"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Play Info */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-semibold text-gray-900 truncate">{play.name}</h3>
+                    {play.playNotes && (
+                      <div className="relative inline-block mt-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNotesTooltipPlayId(notesTooltipPlayId === play.id ? null : play.id);
+                          }}
+                          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                        >
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                          </svg>
+                          Notes
+                        </button>
+                        {notesTooltipPlayId === play.id && (
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 max-w-[90vw] bg-white text-gray-900 text-xs rounded-lg p-3 shadow-xl z-[100] border border-gray-200">
+                            <div className="whitespace-pre-wrap">{play.playNotes}</div>
+                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 -bottom-1">
+                              <div className="border-4 border-transparent border-t-white"></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {play.playbook && (
+                      <p className="text-sm text-gray-500 mt-1">{play.playbook}</p>
+                    )}
+                  </div>
+
+                </div>
+              ))}
             </div>
           )}
           
           {/* Empty State */}
-          {foldersInCurrentFolder.length === 0 && filteredPlays.length === 0 && (
+          {currentFolderId !== null && currentFolderId !== '__all_plays__' && foldersInCurrentFolder.length === 0 && filteredPlays.length === 0 && (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <p className="text-lg text-gray-500 mb-2">This folder is empty</p>
                 <p className="text-sm text-gray-400">
                   Create a new play or folder to get started
+                </p>
+              </div>
+            </div>
+          )}
+          {/* Empty State for All Plays */}
+          {currentFolderId === '__all_plays__' && filteredPlays.length === 0 && (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <p className="text-lg text-gray-500 mb-2">No plays yet</p>
+                <p className="text-sm text-gray-400">
+                  Create a new play to get started
                 </p>
               </div>
             </div>
@@ -1971,6 +2985,70 @@ export default function MyPlays() {
                 className="px-6 py-3 text-base font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div 
+          className="fixed inset-0 bg-white/30 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowShareModal(false);
+            setShareUrl('');
+            setShareError(null);
+          }}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4 border border-gray-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-2xl font-bold text-gray-900 mb-6 tracking-tight">
+              {shareError ? 'Share Error' : 'Share Link Created'}
+            </h3>
+            
+            {shareError ? (
+              <div className="mb-6">
+                <p className="text-gray-600 text-base whitespace-pre-wrap">{shareError}</p>
+              </div>
+            ) : (
+              <div className="mb-6">
+                <p className="text-gray-600 mb-4 text-base">
+                  Share link copied to clipboard! You can share this link with others.
+                </p>
+                <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <input
+                    type="text"
+                    value={shareUrl}
+                    readOnly
+                    className="flex-1 text-sm text-gray-900 bg-transparent border-none outline-none"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareUrl);
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                    title="Copy again"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setShowShareModal(false);
+                  setShareUrl('');
+                  setShareError(null);
+                }}
+                className="px-6 py-3 text-base font-medium text-gray-900 bg-white border-2 border-gray-300 rounded-lg hover:border-gray-400 transition-colors"
+              >
+                {shareError ? 'Close' : 'Done'}
               </button>
             </div>
           </div>
