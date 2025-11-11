@@ -20,6 +20,12 @@ service cloud.firestore {
       allow write: if request.auth != null; // Only authenticated users can create share links
     }
     
+    // Community plays - anyone can read, authenticated users can create
+    match /communityPlays/{playId} {
+      allow read: if true; // Anyone can read community plays
+      allow write: if request.auth != null; // Only authenticated users can add plays to community
+    }
+    
     // User data - users can only read/write their own data
     match /users/{userId} {
       // Allow users to read and write their own user document
@@ -38,6 +44,10 @@ service cloud.firestore {
 - **`allow read: if true`** - Anyone with the share link can read/view the shared folder
 - **`allow write: if request.auth != null`** - Only authenticated users can create share links
 
+### Community Plays (`communityPlays`)
+- **`allow read: if true`** - Anyone can read/view community plays (public access)
+- **`allow write: if request.auth != null`** - Only authenticated users can add plays to the community collection
+
 ### User Data (`users`)
 - **`allow read, write: if request.auth != null && request.auth.uid == userId`** - Users can only read and write their own user document
   - This allows users to create their account (when they sign up, a document is created with their user ID)
@@ -55,6 +65,12 @@ service cloud.firestore {
     match /sharedFolders/{shareId} {
       allow read: if true;
       allow write: if true; // Allow anyone to create shares (less secure)
+    }
+    
+    // Community plays - public read, anyone can write (less secure)
+    match /communityPlays/{playId} {
+      allow read: if true;
+      allow write: if true; // Allow anyone to add plays (less secure)
     }
     
     // User data still requires authentication

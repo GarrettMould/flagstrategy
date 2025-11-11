@@ -26,6 +26,40 @@ export default function HomePage() {
           </Link>
         </div>
 
+        {/* Navigation Links */}
+        <div className="flex items-center gap-6 ml-auto">
+          <Link 
+            href="/builder" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            Play Builder
+          </Link>
+          <Link 
+            href="/my-plays" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            My Plays
+          </Link>
+          <Link 
+            href="/playbooks" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            Playbooks
+          </Link>
+          <Link 
+            href="/community-plays" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            Community Plays
+          </Link>
+          <Link 
+            href="/coaching-resources" 
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            Coaching Resources
+          </Link>
+        </div>
+
         {/* Login/Logout Button */}
         {!user ? (
           <Link

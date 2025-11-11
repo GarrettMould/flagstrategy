@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 export interface SavedPlay {
@@ -43,6 +43,7 @@ export interface SavedPlay {
   }>;
   playerRouteAssociations?: [string, string[]][] | { [playerId: string]: string[] }; // Array format (legacy) or object format (Firestore)
   playNotes?: string;
+  sharedToCommunity?: boolean; // Whether this play is shared to the Community Plays library
   createdAt?: string;
   updatedAt?: string;
 }
@@ -584,6 +585,57 @@ export async function loadUserData(userId: string): Promise<UserData | null> {
       code: (error as { code?: string })?.code,
       stack: error instanceof Error ? error.stack : undefined
     });
+    throw error;
+  }
+}
+
+// Save a play to the community plays collection
+export async function saveToCommunityPlays(play: SavedPlay): Promise<void> {
+  try {
+    const firestoreDb = getDb();
+    
+    // Create a copy of the play without the sharedToCommunity flag (it's already in community)
+    const communityPlay = { ...play };
+    delete communityPlay.sharedToCommunity;
+    delete communityPlay.folderId; // Don't include folder info in community plays
+    
+    // Sanitize the play data
+    const sanitizedPlay = sanitizeForFirestore(communityPlay);
+    
+    // Add to communityPlays collection
+    await addDoc(collection(firestoreDb, 'communityPlays'), {
+      ...sanitizedPlay,
+      addedAt: new Date().toISOString()
+    });
+    
+    console.log('Successfully saved play to communityPlays:', play.name);
+  } catch (error) {
+    console.error('Error saving to communityPlays:', error);
+    throw error;
+  }
+}
+
+// Load all community plays
+export async function loadCommunityPlays(): Promise<SavedPlay[]> {
+  try {
+    const firestoreDb = getDb();
+    
+    // Query all community plays, ordered by when they were added
+    const q = query(collection(firestoreDb, 'communityPlays'), orderBy('addedAt', 'desc'));
+    const querySnapshot = await getDocs(q);
+    
+    const plays: SavedPlay[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      // Remove the addedAt field and use the play data
+      const { addedAt, ...playData } = data;
+      plays.push(playData as SavedPlay);
+    });
+    
+    console.log('Loaded community plays:', plays.length);
+    return plays;
+  } catch (error) {
+    console.error('Error loading community plays:', error);
     throw error;
   }
 }

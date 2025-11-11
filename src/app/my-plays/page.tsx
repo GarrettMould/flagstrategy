@@ -1377,7 +1377,7 @@ export default function MyPlays() {
           </div>
 
           {/* Navigation Links (no login button) */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 ml-auto">
             <Link 
               href="/builder" 
               className={`text-sm font-medium transition-colors ${
@@ -1397,6 +1397,36 @@ export default function MyPlays() {
               }`}
             >
               My Plays
+            </Link>
+            <Link 
+              href="/playbooks" 
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/playbooks' 
+                  ? 'text-gray-900' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Playbooks
+            </Link>
+            <Link 
+              href="/community-plays" 
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/community-plays' 
+                  ? 'text-gray-900' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Community Plays
+            </Link>
+            <Link 
+              href="/coaching-resources" 
+              className={`text-sm font-medium transition-colors ${
+                pathname === '/coaching-resources' 
+                  ? 'text-gray-900' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Coaching Resources
             </Link>
           </div>
         </header>
@@ -1582,7 +1612,7 @@ export default function MyPlays() {
         </div>
 
         {/* Navigation Links and Login/Logout */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 ml-auto">
           <Link 
             href="/builder" 
             className={`text-sm font-medium transition-colors ${
@@ -1602,6 +1632,36 @@ export default function MyPlays() {
             }`}
           >
             My Plays
+          </Link>
+          <Link 
+            href="/playbooks" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/playbooks' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Playbooks
+          </Link>
+          <Link 
+            href="/community-plays" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/community-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Community Plays
+          </Link>
+          <Link 
+            href="/coaching-resources" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/coaching-resources' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Coaching Resources
           </Link>
           {!user ? (
             <Link

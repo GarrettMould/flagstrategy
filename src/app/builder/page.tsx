@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { saveUserData, loadUserData, UserData, SavedPlay, signUp, logIn, signInWithGoogle } from '../firebase';
+import { saveUserData, loadUserData, UserData, SavedPlay, signUp, logIn, signInWithGoogle, saveToCommunityPlays } from '../firebase';
 
 interface Player {
   id: string;
@@ -135,6 +135,7 @@ export default function Home() {
   const [playName, setPlayName] = useState<string>('');
   const [playNotes, setPlayNotes] = useState<string>('');
   const [selectedFolder, setSelectedFolder] = useState<string>('');
+  const [sharedToCommunity, setSharedToCommunity] = useState<boolean>(true);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [newFolderName, setNewFolderName] = useState<string>('');
   const [showCreateFolderInput, setShowCreateFolderInput] = useState<boolean>(false);
@@ -548,6 +549,7 @@ export default function Home() {
       setPlayName(play.name);
       setPlayNotes(play.playNotes || '');
       setSelectedFolder(play.folderId || '');
+      setSharedToCommunity(play.sharedToCommunity || false);
       setEditingPlayId(play.id);
       setMode('select');
       
@@ -982,42 +984,82 @@ export default function Home() {
     const fieldWidth = fieldContainer.offsetWidth;
     const fieldHeight = fieldContainer.offsetHeight;
     
-    // Position players at the bottom of the field (around 80% down)
-    const bottomY = fieldHeight * 0.8;
+    // Check if mobile (screen width < 768px)
+    const isMobile = window.innerWidth < 768;
     
-    // QB goes slightly behind the line (85% down)
-    let playerY = bottomY;
-    if (color === 'qb') {
-      playerY = fieldHeight * 0.85;
+    // Position players - bottom on mobile, desktop uses specific coordinates
+    let playerY: number;
+    if (isMobile) {
+      // Mobile: position at bottom (80% down)
+      const bottomY = fieldHeight * 0.8;
+      playerY = color === 'qb' ? fieldHeight * 0.85 : bottomY;
+    } else {
+      // Desktop: use user-provided coordinates
+      switch (color) {
+        case 'blue':
+          playerY = fieldHeight * 0.703;
+          break;
+        case 'red':
+          playerY = fieldHeight * 0.701;
+          break;
+        case 'green':
+          playerY = fieldHeight * 0.698;
+          break;
+        case 'yellow':
+          playerY = fieldHeight * 0.702;
+          break;
+        case 'qb':
+          playerY = fieldHeight * 0.852;
+          break;
+        default:
+          playerY = fieldHeight * 0.5;
+      }
     }
     
     // Position based on color - spread across the field width
     let positionX: number;
-    switch (color) {
-      case 'blue':
-        positionX = fieldWidth * 0.15; // Left side
-        break;
-      case 'yellow':
-        positionX = fieldWidth * 0.35; // Left middle
-        break;
-      case 'green':
-        positionX = fieldWidth * 0.65; // Right middle
-        break;
-      case 'red':
-        positionX = fieldWidth * 0.85; // Right side
-        break;
-      case 'qb':
-        positionX = fieldWidth * 0.5; // Center
-        break;
-      default:
-        // For other colors, use default spacing logic
-        const existingPlayersOnSameLine = players.filter(p => 
-          Math.abs(p.y - playerY) < fieldHeight * 0.05 // Within 5% of the same yard line
-        );
-        const spacing = 80; // 80px spacing between players
-        const startX = fieldWidth / 2 - (existingPlayersOnSameLine.length * spacing) / 2;
-        positionX = startX + (existingPlayersOnSameLine.length * spacing);
-        break;
+    if (isMobile) {
+      // Mobile positioning
+      switch (color) {
+        case 'blue':
+          positionX = fieldWidth * 0.15; // Left side
+          break;
+        case 'yellow':
+          positionX = fieldWidth * 0.35; // Left middle
+          break;
+        case 'green':
+          positionX = fieldWidth * 0.65; // Right middle
+          break;
+        case 'red':
+          positionX = fieldWidth * 0.85; // Right side
+          break;
+        case 'qb':
+          positionX = fieldWidth * 0.5; // Center
+          break;
+        default:
+          positionX = fieldWidth * 0.5;
+      }
+    } else {
+      // Desktop positioning (from user-provided coordinates)
+      switch (color) {
+        case 'blue':
+          positionX = fieldWidth * 0.259;
+          break;
+        case 'red':
+          positionX = fieldWidth * 0.798;
+          break;
+        case 'green':
+          positionX = fieldWidth * 0.632;
+          break;
+        case 'yellow':
+          positionX = fieldWidth * 0.492;
+          break;
+        case 'qb':
+          positionX = fieldWidth * 0.492;
+          break;
+        default:
+          positionX = fieldWidth * 0.5;
+      }
     }
     
     const newPlayer: Player = {
@@ -1053,39 +1095,81 @@ export default function Home() {
     const fieldWidth = fieldContainer.offsetWidth;
     const fieldHeight = fieldContainer.offsetHeight;
     
-    // Position players at the bottom of the field (around 80% down)
-    const bottomY = fieldHeight * 0.8;
-    const qbY = fieldHeight * 0.85; // QB goes slightly behind the line
+    // Check if mobile (screen width < 768px)
+    const isMobile = window.innerWidth < 768;
+    
+    // Position players - bottom on mobile, center on desktop
+    let bottomY: number;
+    let qbY: number;
+    if (isMobile) {
+      // Mobile: position at bottom (80% down)
+      bottomY = fieldHeight * 0.8;
+      qbY = fieldHeight * 0.85;
+    } else {
+      // Desktop: position in center (original positioning)
+      bottomY = fieldHeight * 0.5; // 50% down (center)
+      qbY = fieldHeight * 0.6; // 60% down (QB goes one line behind)
+    }
     
     // Create all players at their default positions
     const newPlayers: Player[] = colors.map((colorOption, index) => {
       let positionX: number;
       let y: number;
       
-      switch (colorOption.name) {
-        case 'blue':
-          positionX = fieldWidth * 0.15; // Left side
-          y = bottomY;
-          break;
-        case 'yellow':
-          positionX = fieldWidth * 0.35; // Left middle
-          y = bottomY;
-          break;
-        case 'green':
-          positionX = fieldWidth * 0.65; // Right middle
-          y = bottomY;
-          break;
-        case 'red':
-          positionX = fieldWidth * 0.85; // Right side
-          y = bottomY;
-          break;
-        case 'qb':
-          positionX = fieldWidth * 0.5; // Center
-          y = qbY;
-          break;
-        default:
-          positionX = fieldWidth * 0.5;
-          y = bottomY;
+      if (isMobile) {
+        // Mobile positioning
+        switch (colorOption.name) {
+          case 'blue':
+            positionX = fieldWidth * 0.15; // Left side
+            y = bottomY;
+            break;
+          case 'yellow':
+            positionX = fieldWidth * 0.35; // Left middle
+            y = bottomY;
+            break;
+          case 'green':
+            positionX = fieldWidth * 0.65; // Right middle
+            y = bottomY;
+            break;
+          case 'red':
+            positionX = fieldWidth * 0.85; // Right side
+            y = bottomY;
+            break;
+          case 'qb':
+            positionX = fieldWidth * 0.5; // Center
+            y = qbY;
+            break;
+          default:
+            positionX = fieldWidth * 0.5;
+            y = bottomY;
+        }
+      } else {
+        // Desktop positioning (from user-provided coordinates)
+        switch (colorOption.name) {
+          case 'blue':
+            positionX = fieldWidth * 0.259;
+            y = fieldHeight * 0.703;
+            break;
+          case 'red':
+            positionX = fieldWidth * 0.798;
+            y = fieldHeight * 0.701;
+            break;
+          case 'green':
+            positionX = fieldWidth * 0.632;
+            y = fieldHeight * 0.698;
+            break;
+          case 'yellow':
+            positionX = fieldWidth * 0.492;
+            y = fieldHeight * 0.702;
+            break;
+          case 'qb':
+            positionX = fieldWidth * 0.492;
+            y = fieldHeight * 0.852;
+            break;
+          default:
+            positionX = fieldWidth * 0.5;
+            y = bottomY;
+        }
       }
       
       return {
@@ -2436,6 +2520,10 @@ export default function Home() {
       setShowLoginModal(true);
       return;
     }
+    // If not editing an existing play, set sharedToCommunity to default (true)
+    if (!editingPlayId) {
+      setSharedToCommunity(true);
+    }
     setShowSaveDialog(true);
     setShowCreateFolderInput(false);
     setNewFolderName('');
@@ -2556,6 +2644,7 @@ export default function Home() {
           circles: circles,
           footballs: footballs,
           playerRouteAssociations: Object.fromEntries(playerRouteAssociations), // Convert Map to object for Firestore
+          sharedToCommunity: sharedToCommunity || undefined,
           updatedAt: new Date().toISOString()
         };
         // Only include playNotes if it has content, otherwise remove it
@@ -2563,6 +2652,10 @@ export default function Home() {
           updatedPlay.playNotes = playNotes.trim();
         } else {
           delete updatedPlay.playNotes;
+        }
+        // Remove sharedToCommunity if false
+        if (!sharedToCommunity) {
+          delete updatedPlay.sharedToCommunity;
         }
         savedPlays[playIndex] = updatedPlay;
         console.log('Updated play:', savedPlays[playIndex]);
@@ -2574,7 +2667,7 @@ export default function Home() {
     } else {
       // Create new play
       console.log('Creating new play');
-      const newPlay = {
+      const newPlay: SavedPlay = {
         id: Date.now().toString(),
         name: playName.trim(),
         folderId: selectedFolder || undefined,
@@ -2585,6 +2678,7 @@ export default function Home() {
         footballs: footballs,
         playerRouteAssociations: Object.fromEntries(playerRouteAssociations), // Convert Map to object for Firestore
         ...(playNotes.trim() ? { playNotes: playNotes.trim() } : {}),
+        ...(sharedToCommunity ? { sharedToCommunity: true } : {}),
         createdAt: new Date().toISOString()
       };
       console.log('New play created:', newPlay);
@@ -2605,6 +2699,7 @@ export default function Home() {
     setSelectedFolder('');
     setNewFolderName('');
     setEditingPlayId(null);
+    setSharedToCommunity(true);
     setShowSaveDialog(false);
     
     // Cloud sync in background (don't await)
@@ -2619,6 +2714,24 @@ export default function Home() {
       syncToCloud(savedPlays, currentFolders).catch((error) => {
         console.error('Error syncing to cloud:', error);
       });
+      
+      // If play is shared to community, also save to communityPlays collection
+      if (sharedToCommunity) {
+        const playToShare = editingPlayId 
+          ? savedPlays.find((p: SavedPlay) => p.id === editingPlayId)
+          : savedPlays[savedPlays.length - 1]; // The newly created play
+        
+        if (playToShare) {
+          console.log('Saving play to communityPlays:', playToShare.name);
+          // Create a copy without sharedToCommunity and folderId for community
+          const communityPlay = { ...playToShare };
+          delete communityPlay.sharedToCommunity;
+          delete communityPlay.folderId;
+          saveToCommunityPlays(communityPlay).catch((error) => {
+            console.error('Error saving to communityPlays:', error);
+          });
+        }
+      }
     } else {
       console.log('User not logged in, skipping cloud sync');
     }
@@ -2633,6 +2746,7 @@ export default function Home() {
     setNewFolderName('');
     setShowCreateFolderInput(false);
     setEditingPlayId(null);
+    setSharedToCommunity(false);
   };
 
   const deleteFolder = async (folderId: string) => {
@@ -3347,7 +3461,7 @@ export default function Home() {
         </div>
 
         {/* Desktop Navigation Links and Login/Logout */}
-        <div className="hidden md:flex items-center gap-6">
+        <div className="hidden md:flex items-center gap-6 ml-auto">
           <Link 
             href="/builder" 
             className={`text-sm font-medium transition-colors ${
@@ -3367,6 +3481,36 @@ export default function Home() {
             }`}
           >
             My Plays
+          </Link>
+          <Link 
+            href="/playbooks" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/playbooks' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Playbooks
+          </Link>
+          <Link 
+            href="/community-plays" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/community-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Community Plays
+          </Link>
+          <Link 
+            href="/coaching-resources" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/coaching-resources' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Coaching Resources
           </Link>
           {!user ? (
             <Link
@@ -3426,6 +3570,39 @@ export default function Home() {
                 }`}
               >
                 My Plays
+              </Link>
+              <Link 
+                href="/playbooks"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/playbooks' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Playbooks
+              </Link>
+              <Link 
+                href="/community-plays"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/community-plays' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Community Plays
+              </Link>
+              <Link 
+                href="/coaching-resources"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/coaching-resources' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Coaching Resources
               </Link>
               {!user ? (
                 <Link
@@ -3607,7 +3784,7 @@ export default function Home() {
       </div>
 
       {/* Canvas Container with Button Row */}
-      <div className="bg-gray-50 flex flex-col md:border-r border-gray-200 min-w-0 overflow-hidden">
+      <div className="bg-gray-50 flex flex-col md:border-r border-gray-200 flex-1 min-w-0 overflow-hidden">
         {/* Toolbar - Centered over Canvas */}
         <div className="bg-white border-b border-gray-200 flex-shrink-0">
           <div className="flex flex-col md:flex-row md:items-center md:justify-center gap-3 md:gap-6 py-3 px-4">
@@ -3780,10 +3957,10 @@ export default function Home() {
         </div>
         
         {/* Canvas Container - left-aligned field with border */}
-        <div className="bg-gray-50 relative overflow-auto" style={{ height: '800px' }}>
-        <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full" style={{ height: '800px' }}>
+        <div className="bg-gray-50 relative overflow-auto h-[800px] md:h-auto md:flex-1 md:min-h-0">
+        <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full">
           {/* Canvas Area */}
-          <div className="bg-white relative overflow-hidden w-full" data-field-container style={{ width: '100%', height: '800px', position: 'relative' }}>
+          <div className="bg-white relative overflow-hidden w-full h-[800px] md:h-full md:flex-1" data-field-container style={{ position: 'relative' }}>
         {/* Save Notification */}
         {showSaveNotification && (
           <div className="absolute top-4 left-6 z-20 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-opacity duration-300 opacity-100">
@@ -4071,7 +4248,7 @@ export default function Home() {
                 title={`Click to ${route.showArrow !== false ? 'hide' : 'show'} arrow`}
               />
             )}
-            {/* Delete button for selected routes */}
+            {/* Delete button for selected routes - mobile only */}
             {isSelected && (
               <button
                 type="button"
@@ -4089,7 +4266,7 @@ export default function Home() {
                   e.preventDefault();
                   deleteSingleItem('route', route.id);
                 }}
-                className="absolute w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                className="md:hidden absolute w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
                 style={{
                   left: `${lastPoint.x - 12}px`,
                   top: `${lastPoint.y - 12}px`,
@@ -4237,10 +4414,10 @@ export default function Home() {
             />
           )}
 
-          {/* Delete Selected Items Button - Floating Action Button */}
+          {/* Delete Selected Items Button - Mobile: bottom-right, Desktop: top-left */}
           {((selectedItems.players?.length || 0) > 0 || (selectedItems.routes?.length || 0) > 0 || (selectedItems.textBoxes?.length || 0) > 0 || (selectedItems.circles?.length || 0) > 0 || (selectedItems.footballs?.length || 0) > 0) && (
             <div
-              className="fixed bottom-6 right-6 z-[100] pointer-events-auto"
+              className="fixed bottom-6 right-6 md:absolute md:top-4 md:left-4 md:bottom-auto md:right-auto z-[100] pointer-events-auto"
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -4339,7 +4516,7 @@ export default function Home() {
                     {colorOption.label}
                   </span>
                 )}
-                {/* Delete button for selected players - visible on mobile or when selected */}
+                {/* Delete button for selected players - mobile only */}
                 {isSelected && (
                   <button
                     type="button"
@@ -4357,7 +4534,7 @@ export default function Home() {
                       e.preventDefault();
                       deleteSingleItem('player', player.id);
                     }}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                    className="md:hidden absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
                     title="Delete player"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4445,7 +4622,7 @@ export default function Home() {
                         e.preventDefault();
                         deleteSingleItem('textbox', textBox.id);
                       }}
-                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                      className="md:hidden absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
                       title="Delete text box"
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4525,7 +4702,7 @@ export default function Home() {
                       e.preventDefault();
                       deleteSingleItem('circle', circle.id);
                     }}
-                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                    className="md:hidden absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
                     title="Delete circle"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4604,7 +4781,7 @@ export default function Home() {
                       e.preventDefault();
                       deleteSingleItem('football', football.id);
                     }}
-                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                    className="md:hidden absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
                     title="Delete football"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5589,6 +5766,41 @@ export default function Home() {
                     </button>
                   </div>
                 )}
+              </div>
+              
+              {/* Community Sharing Checkbox */}
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="sharedToCommunity"
+                  checked={sharedToCommunity}
+                  onChange={(e) => setSharedToCommunity(e.target.checked)}
+                  className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <label 
+                    htmlFor="sharedToCommunity" 
+                    className="text-sm font-medium text-gray-900 cursor-pointer flex items-center gap-1"
+                  >
+                    Allow this play to be shared in the Community Plays library
+                    <div className="relative group">
+                      <svg 
+                        className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                        Shared plays are visible to other users. Users will not see who created the play and cannot edit your plays.
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                          <div className="border-4 border-transparent border-t-gray-900"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
             </div>
             

@@ -1,205 +1,44 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { getSharedFolder, SharedFolder } from '../../firebase';
-import { useAuth } from '../../contexts/AuthContext';
+import { usePathname } from 'next/navigation';
+import { useAuth } from '../contexts/AuthContext';
+import { loadCommunityPlays, SavedPlay } from '../firebase';
 
-interface Player {
-  id: string;
-  x: number;
-  y: number;
-  color: string;
-  type: 'offense' | 'defense';
-}
-
-interface Route {
-  id: string;
-  points: { x: number; y: number }[];
-  style: 'solid' | 'dashed';
-  lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
-  color?: string; // Optional to match Firebase SavedPlay interface
-}
-
-interface TextBox {
-  id: string;
-  x: number;
-  y: number;
-  text: string;
-  fontSize: number;
-  color: string;
-}
-
-interface Circle {
-  id: string;
-  x: number;
-  y: number;
-  radius: number;
-  color: string;
-}
-
-interface Football {
-  id: string;
-  x: number;
-  y: number;
-  size: number;
-}
-
-interface SavedPlay {
-  id: string;
-  name: string;
-  playbook?: string;
-  folderId?: string;
-  players: Player[];
-  routes: Route[];
-  textBoxes?: TextBox[];
-  circles?: Circle[];
-  footballs?: Football[];
-  createdAt?: string;
-  playerRouteAssociations?: [string, string[]][];
-  playNotes?: string;
-}
-
-const colors = [
-  { name: 'blue', color: 'bg-blue-500', label: '' },
-  { name: 'red', color: 'bg-red-500', label: '' },
-  { name: 'green', color: 'bg-green-500', label: '' },
-  { name: 'yellow', color: 'bg-yellow-500', label: '' },
-  { name: 'qb', color: 'bg-black', label: 'QB' },
-];
-
-function UserMenu() {
-  const { user, logout } = useAuth();
-  const [showMenu, setShowMenu] = useState(false);
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      setShowMenu(false);
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
-  };
-
-  if (!user) {
-    return (
-      <Link
-        href="/login"
-        className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium shadow-sm"
-      >
-        Sign In
-      </Link>
-    );
-  }
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setShowMenu(!showMenu)}
-        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg>
-        <span className="hidden sm:inline">{user.email}</span>
-      </button>
-      {showMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setShowMenu(false)}
-          />
-          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-20">
-            <div className="px-4 py-2 text-sm text-gray-700 border-b">
-              {user.email}
-            </div>
-            <button
-              onClick={handleLogout}
-              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-            >
-              Sign Out
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-export default function SharedFolderPage() {
-  const params = useParams();
-  const shareId = params.shareId as string;
-  const { user } = useAuth();
-  const [sharedFolder, setSharedFolder] = useState<SharedFolder | null>(null);
+export default function CommunityPlays() {
+  const { user, loading: authLoading } = useAuth();
+  const pathname = usePathname();
+  const [communityPlays, setCommunityPlays] = useState<SavedPlay[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showImportModal, setShowImportModal] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    // Only run on client side
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    async function fetchData() {
-      if (!shareId) {
-        setError('No share ID provided');
-        setLoading(false);
-        return;
-      }
-
+    const loadPlays = async () => {
       try {
         setLoading(true);
-        const folder = await getSharedFolder(shareId);
-        
-        if (folder) {
-          setSharedFolder(folder);
-        } else {
-          setError('Shared folder not found');
-        }
+        setError('');
+        const plays = await loadCommunityPlays();
+        setCommunityPlays(plays);
       } catch (err) {
-        console.error('Error fetching shared folder:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch shared folder');
+        console.error('Error loading community plays:', err);
+        setError('Failed to load community plays. Please try again.');
       } finally {
         setLoading(false);
       }
-    }
+    };
 
-    fetchData();
-  }, [shareId]);
+    loadPlays();
+  }, []);
 
-  const importPlays = () => {
-    if (!sharedFolder || !sharedFolder.plays || sharedFolder.plays.length === 0) {
-      alert('No plays to import');
-      return;
-    }
+  const colors = [
+    { name: 'blue', color: 'bg-blue-500', label: 'X' },
+    { name: 'red', color: 'bg-red-500', label: 'Z' },
+    { name: 'green', color: 'bg-green-500', label: 'Y' },
+    { name: 'yellow', color: 'bg-yellow-500', label: 'H' },
+    { name: 'qb', color: 'bg-black', label: 'QB' },
+  ];
 
-    // Get existing plays from localStorage (same as save feature)
-    const existingPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-    
-    // Generate new IDs for imported plays to avoid conflicts
-    const importedPlays = sharedFolder.plays.map((play) => ({
-      ...play,
-      id: `${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-      folderId: undefined, // Remove folder association (user can add to their own folder)
-      createdAt: new Date().toISOString()
-    }));
-    
-    // Merge with existing plays
-    const updatedPlays = [...existingPlays, ...importedPlays];
-    
-    // Save to localStorage (same as save feature)
-    localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
-    
-    alert(`Successfully imported ${importedPlays.length} play(s) to My Plays!`);
-    setShowImportModal(false);
-    
-    // Navigate to My Plays page
-    window.location.href = '/my-plays';
-  };
-
-  // Helper function to generate smooth path
   const generateSmoothPath = (points: { x: number; y: number }[]): string => {
     if (points.length < 2) return '';
     if (points.length === 2) {
@@ -330,6 +169,7 @@ export default function SharedFolderPage() {
             <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
           </div>
         </div>
+        
         {/* Routes */}
         {play.routes?.map((route) => {
           if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
@@ -363,7 +203,7 @@ export default function SharedFolderPage() {
           const arrowLength = 20 * scale;
           const arrowX = lastPoint.x + Math.cos(angle) * arrowLength;
           const arrowY = lastPoint.y + Math.sin(angle) * arrowLength;
-  
+          
           // Shorten the line before arrow
           let routePoints = scaledPoints;
           if (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' && scaledPoints.length >= 2) {
@@ -542,34 +382,8 @@ export default function SharedFolderPage() {
     );
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-lg text-gray-600">Loading shared folder...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !sharedFolder) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Shared Folder</h1>
-          <p className="text-lg text-red-600 mb-4">{error || 'Shared folder not found'}</p>
-          <Link href="/" className="text-blue-600 hover:text-blue-800 underline">
-            Go to Play Builder
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const plays = (sharedFolder.plays || []) as SavedPlay[];
-
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
       <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
         {/* Site Title */}
@@ -584,31 +398,51 @@ export default function SharedFolderPage() {
         <div className="flex items-center gap-6 ml-auto">
           <Link 
             href="/builder" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/builder' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             Play Builder
           </Link>
           <Link 
             href="/my-plays" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/my-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             My Plays
           </Link>
           <Link 
             href="/playbooks" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/playbooks' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             Playbooks
           </Link>
           <Link 
             href="/community-plays" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/community-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             Community Plays
           </Link>
           <Link 
             href="/coaching-resources" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/coaching-resources' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             Coaching Resources
           </Link>
@@ -617,122 +451,74 @@ export default function SharedFolderPage() {
               href="/login"
               className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
             >
-              Login
+              Log In
             </Link>
           ) : (
-            <>
-              <button
-                onClick={() => setShowImportModal(true)}
-                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-              >
-                Import to My Plays
-              </button>
-              <UserMenu />
-            </>
+            <Link
+              href="/my-plays"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
+            >
+              My Plays
+            </Link>
           )}
         </div>
       </header>
 
-      {/* Shared Folder Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">
-              {sharedFolder.folderName}
-            </h1>
-            <p className="text-sm text-gray-600">
-              {plays.length} {plays.length === 1 ? 'play' : 'plays'} shared with you
-            </p>
-          </div>
-          {!user && (
-            <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-lg px-6 py-4">
-              <div className="flex-1">
-                <h3 className="text-base font-semibold text-gray-900 mb-1">Create your own plays!</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Sign up for free to build, organize, and share your own playbook.
-                </p>
-                <Link
-                  href="/login?signup=true"
-                  className="inline-block px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
-                >
-                  Get Started Free
-                </Link>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {plays.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <p className="text-lg text-gray-500 mb-2">This folder is empty</p>
-            </div>
+      <main className="max-w-7xl mx-auto px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Community Plays</h1>
+          <p className="text-gray-600">
+            Browse plays shared by the community. These plays are publicly available for everyone to view and use.
+          </p>
+        </div>
+
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-gray-600">Loading community plays...</div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            {plays.map((play) => (
-              <div
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && communityPlays.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-600 text-lg">No community plays yet.</p>
+            <p className="text-gray-500 mt-2">Be the first to share a play with the community!</p>
+          </div>
+        )}
+
+        {!loading && !error && communityPlays.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {communityPlays.map((play) => (
+              <Link
                 key={play.id}
-                className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200"
+                href={`/builder?play=${encodeURIComponent(JSON.stringify(play))}`}
+                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer"
               >
-                {/* Play Preview */}
-                <div className="w-full bg-white relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
-                  {/* Play Content */}
+                <div className="h-48 bg-gray-100 flex items-center justify-center">
                   {renderPlayPreview(play)}
                 </div>
-
-                {/* Play Name */}
-                <div className="p-3">
-                  <h3 className="text-sm font-medium text-gray-900 truncate">{play.name}</h3>
-                  {play.playbook && (
-                    <p className="text-xs text-gray-500 mt-1">{play.playbook}</p>
-                  )}
+                <div className="p-4">
+                  <h3 className="font-semibold text-gray-900 mb-1 truncate">{play.name}</h3>
                   {play.playNotes && (
-                    <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{play.playNotes}</p>
+                    <p className="text-sm text-gray-600 line-clamp-2 mb-2">{play.playNotes}</p>
                   )}
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>{play.players.length} players</span>
+                    <span>{play.routes.length} routes</span>
+                  </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}
-      </div>
-
-      {/* Import Confirmation Modal */}
-      {showImportModal && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onClick={() => setShowImportModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 max-w-md w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Import Plays
-            </h3>
-            <p className="text-gray-600 mb-6">
-              This will import {plays.length} play(s) from &quot;{sharedFolder.folderName}&quot; into your My Plays collection. You can then organize them into your own folders.
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowImportModal(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={importPlays}
-                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-              >
-                Import
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </main>
     </div>
   );
 }
+
