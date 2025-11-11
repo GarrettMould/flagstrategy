@@ -246,6 +246,7 @@ export default function Home() {
   const [showDownloadDropdown, setShowDownloadDropdown] = useState<boolean>(false);
   const [openFolderMenu, setOpenFolderMenu] = useState<string | null>(null);
   const [showDeleteFolderConfirm, setShowDeleteFolderConfirm] = useState<string | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   const saveHistoryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const historyIndexRef = useRef<number>(-1);
   
@@ -589,6 +590,10 @@ export default function Home() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
+      // Close mobile menu if clicking outside
+      if (showMobileMenu && !target.closest('header') && !target.closest('[data-mobile-menu]')) {
+        setShowMobileMenu(false);
+      }
       if (showDownloadDropdown && !target.closest('[data-download-dropdown]')) {
         setShowDownloadDropdown(false);
       }
@@ -597,13 +602,13 @@ export default function Home() {
       }
     };
 
-    if (showDownloadDropdown || openFolderMenu) {
+    if (showDownloadDropdown || openFolderMenu || showMobileMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
-  }, [showDownloadDropdown, openFolderMenu]);
+  }, [showDownloadDropdown, openFolderMenu, showMobileMenu]);
 
   const colors = [
     { name: 'blue', color: 'bg-blue-500', label: 'X' },
@@ -612,6 +617,23 @@ export default function Home() {
     { name: 'yellow', color: 'bg-yellow-500', label: 'C' },
     { name: 'qb', color: 'bg-black', label: 'QB' },
   ];
+
+  // Helper function to get coordinates from mouse or touch event
+  const getEventCoordinates = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, target: HTMLElement) => {
+    if ('touches' in e && e.touches.length > 0) {
+      const rect = target.getBoundingClientRect();
+      return {
+        x: e.touches[0].clientX - rect.left,
+        y: e.touches[0].clientY - rect.top
+      };
+    } else {
+      const rect = target.getBoundingClientRect();
+      return {
+        x: (e as React.MouseEvent<HTMLDivElement>).clientX - rect.left,
+        y: (e as React.MouseEvent<HTMLDivElement>).clientY - rect.top
+      };
+    }
+  };
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // Deselect route if clicking on empty space
@@ -631,7 +653,8 @@ export default function Home() {
                             target.closest('[data-textbox]') || 
                             target.closest('[data-circle]') ||
                             target.closest('[data-football]') ||
-                            target.closest('button'); // Don't start selection if clicking a button
+                            target.closest('button') || // Don't start selection if clicking a button
+                            target.closest('[data-delete-button]'); // Don't start selection if clicking delete button
       
       if (!isClickingItem) {
         // Start selection box
@@ -655,21 +678,19 @@ export default function Home() {
     }
   };
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     // Handle selection box dragging
     if (isSelecting && selectionBox) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      setSelectionBox({ ...selectionBox, endX: x, endY: y });
+      const coords = getEventCoordinates(e, e.currentTarget);
+      setSelectionBox({ ...selectionBox, endX: coords.x, endY: coords.y });
       return;
     }
     
     // Only handle route drawing if route is being drawn
     if (selectedRouteStyle && isDrawingRoute && currentRoute.length > 0) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const coords = getEventCoordinates(e, e.currentTarget);
+      const x = coords.x;
+      const y = coords.y;
       
       setCurrentRoute(prev => {
         const newRoute = [...prev];
@@ -948,39 +969,50 @@ export default function Home() {
       setCurrentRoute([]);
     }
     
-    // Calculate middle of field (50% width, 50% height for 50-yard line)
-    const fieldWidth = window.innerWidth * 0.75 * 0.6; // 60% of the canvas area (75% of screen)
-    const fieldHeight = fieldWidth / 0.92; // Height based on aspect ratio (slightly taller than wide)
-    
-    let middleY = fieldHeight / 2;
-    
-    // QB goes one line behind (one yard line back)
-    if (color === 'qb') {
-      middleY = fieldHeight / 2 + (fieldHeight * 0.1); // 10% of field height = 1 yard line
+    // Get actual canvas dimensions
+    const fieldContainer = document.querySelector('[data-field-container]') as HTMLElement;
+    if (!fieldContainer) {
+      showCustomAlert('Canvas container not found.');
+      return;
     }
     
-    // Position based on color
+    const fieldWidth = fieldContainer.offsetWidth;
+    const fieldHeight = fieldContainer.offsetHeight;
+    
+    // Position players at the bottom of the field (around 80% down)
+    const bottomY = fieldHeight * 0.8;
+    
+    // QB goes slightly behind the line (85% down)
+    let playerY = bottomY;
+    if (color === 'qb') {
+      playerY = fieldHeight * 0.85;
+    }
+    
+    // Position based on color - spread across the field width
     let positionX: number;
     switch (color) {
       case 'blue':
-        positionX = fieldWidth * 0.2; // Left part
+        positionX = fieldWidth * 0.15; // Left side
         break;
       case 'yellow':
-        positionX = fieldWidth * 0.5; // Middle
+        positionX = fieldWidth * 0.35; // Left middle
         break;
       case 'green':
-        positionX = fieldWidth * 0.65; // Right of middle
+        positionX = fieldWidth * 0.65; // Right middle
         break;
       case 'red':
-        positionX = fieldWidth * 0.85; // Far right
+        positionX = fieldWidth * 0.85; // Right side
+        break;
+      case 'qb':
+        positionX = fieldWidth * 0.5; // Center
         break;
       default:
-        // For QB and other colors, use default spacing logic
-    const existingPlayersOnSameLine = players.filter(p => 
-      Math.abs(p.y - middleY) < fieldHeight * 0.05 // Within 5% of the same yard line
-    );
-    const spacing = 80; // 80px spacing between players
-    const startX = fieldWidth / 2 - (existingPlayersOnSameLine.length * spacing) / 2;
+        // For other colors, use default spacing logic
+        const existingPlayersOnSameLine = players.filter(p => 
+          Math.abs(p.y - playerY) < fieldHeight * 0.05 // Within 5% of the same yard line
+        );
+        const spacing = 80; // 80px spacing between players
+        const startX = fieldWidth / 2 - (existingPlayersOnSameLine.length * spacing) / 2;
         positionX = startX + (existingPlayersOnSameLine.length * spacing);
         break;
     }
@@ -988,7 +1020,7 @@ export default function Home() {
     const newPlayer: Player = {
       id: Date.now().toString(),
       x: positionX,
-      y: middleY,
+      y: playerY,
       color,
       type: 'offense'
     };
@@ -1008,12 +1040,19 @@ export default function Home() {
       setCurrentRoute([]);
     }
     
-    // Calculate field dimensions
-    const fieldWidth = window.innerWidth * 0.75 * 0.6; // 60% of the canvas area (75% of screen)
-    const fieldHeight = fieldWidth / 0.92; // Height based on aspect ratio
+    // Get actual canvas dimensions
+    const fieldContainer = document.querySelector('[data-field-container]') as HTMLElement;
+    if (!fieldContainer) {
+      showCustomAlert('Canvas container not found.');
+      return;
+    }
     
-    const middleY = fieldHeight / 2;
-    const qbY = fieldHeight / 2 + (fieldHeight * 0.1); // QB goes one line behind
+    const fieldWidth = fieldContainer.offsetWidth;
+    const fieldHeight = fieldContainer.offsetHeight;
+    
+    // Position players at the bottom of the field (around 80% down)
+    const bottomY = fieldHeight * 0.8;
+    const qbY = fieldHeight * 0.85; // QB goes slightly behind the line
     
     // Create all players at their default positions
     const newPlayers: Player[] = colors.map((colorOption, index) => {
@@ -1022,20 +1061,20 @@ export default function Home() {
       
       switch (colorOption.name) {
         case 'blue':
-          positionX = fieldWidth * 0.2; // Left part
-          y = middleY;
+          positionX = fieldWidth * 0.15; // Left side
+          y = bottomY;
           break;
         case 'yellow':
-          positionX = fieldWidth * 0.5; // Middle
-          y = middleY;
+          positionX = fieldWidth * 0.35; // Left middle
+          y = bottomY;
           break;
         case 'green':
-          positionX = fieldWidth * 0.65; // Right of middle
-          y = middleY;
+          positionX = fieldWidth * 0.65; // Right middle
+          y = bottomY;
           break;
         case 'red':
-          positionX = fieldWidth * 0.85; // Far right
-          y = middleY;
+          positionX = fieldWidth * 0.85; // Right side
+          y = bottomY;
           break;
         case 'qb':
           positionX = fieldWidth * 0.5; // Center
@@ -1043,7 +1082,7 @@ export default function Home() {
           break;
         default:
           positionX = fieldWidth * 0.5;
-          y = middleY;
+          y = bottomY;
       }
       
       return {
@@ -1578,20 +1617,23 @@ export default function Home() {
     setTimeout(() => saveToHistory(), 0);
   };
 
-  const handleTextBoxMouseDown = (e: React.MouseEvent<HTMLDivElement>, textBoxId: string) => {
+  const handleTextBoxMouseDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, textBoxId: string) => {
     if (mode === 'erase') {
       e.stopPropagation();
       setTextBoxes(prev => prev.filter(tb => tb.id !== textBoxId));
       setTimeout(() => saveToHistory(), 0);
     } else {
       e.stopPropagation();
+      if ('preventDefault' in e) {
+        e.preventDefault();
+      }
       setDraggedTextBox(textBoxId);
       setDraggedElement({ type: 'textbox', id: textBoxId });
       
-      const rect = e.currentTarget.getBoundingClientRect();
+      const coords = getEventCoordinates(e, e.currentTarget);
       setDragOffset({
-        x: e.clientX - rect.left - 24,
-        y: e.clientY - rect.top - 12
+        x: coords.x - 24,
+        y: coords.y - 12
       });
     }
   };
@@ -1618,10 +1660,11 @@ export default function Home() {
 
   // Delete selected items
   const deleteSelectedItems = () => {
+    console.log('deleteSelectedItems called, selectedItems:', selectedItems);
     // Delete selected players and their associated routes
-    const playersToDelete = selectedItems.players;
+    const playersToDelete = selectedItems.players || [];
     const routesToDelete = new Set([
-      ...selectedItems.routes,
+      ...(selectedItems.routes || []),
       ...Array.from(playerRouteAssociations.entries())
         .filter(([playerId]) => playersToDelete.includes(playerId))
         .flatMap(([, routeIds]) => routeIds)
@@ -1637,11 +1680,11 @@ export default function Home() {
     setRoutes(prev => prev.filter(r => !routesToDelete.has(r.id)));
     
     // Delete text boxes
-    setTextBoxes(prev => prev.filter(tb => !selectedItems.textBoxes.includes(tb.id)));
+    setTextBoxes(prev => prev.filter(tb => !(selectedItems.textBoxes || []).includes(tb.id)));
     
     // Delete circles
-    setCircles(prev => prev.filter(c => !selectedItems.circles.includes(c.id)));
-    setFootballs(prev => prev.filter(f => !(selectedItems.footballs || []).includes(f.id)));
+    setCircles(prev => prev.filter(c => !(selectedItems.circles || []).includes(c.id)));
+    setFootballs(prev => prev.filter(f => !((selectedItems.footballs || []).includes(f.id))));
     
     // Clean up player-route associations
     setPlayerRouteAssociations(prev => {
@@ -1652,6 +1695,40 @@ export default function Home() {
     
     // Clear selection
     setSelectedItems({ players: [], routes: [], textBoxes: [], circles: [], footballs: [] });
+    
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  // Delete a single item
+  const deleteSingleItem = (type: 'player' | 'route' | 'textbox' | 'circle' | 'football', id: string) => {
+    if (type === 'player') {
+      const associatedRouteIds = playerRouteAssociations.get(id) || [];
+      setPlayers(prev => prev.filter(p => p.id !== id));
+      setDefensivePlayers(prev => prev.filter(p => p.id !== id));
+      setRoutes(prev => prev.filter(r => !associatedRouteIds.includes(r.id)));
+      setPlayerRouteAssociations(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
+    } else if (type === 'route') {
+      setRoutes(prev => prev.filter(r => r.id !== id));
+    } else if (type === 'textbox') {
+      setTextBoxes(prev => prev.filter(tb => tb.id !== id));
+    } else if (type === 'circle') {
+      setCircles(prev => prev.filter(c => c.id !== id));
+    } else if (type === 'football') {
+      setFootballs(prev => prev.filter(f => f.id !== id));
+    }
+    
+    // Remove from selection
+    setSelectedItems(prev => ({
+      players: prev.players.filter(p => p !== id),
+      routes: prev.routes.filter(r => r !== id),
+      textBoxes: prev.textBoxes.filter(tb => tb !== id),
+      circles: prev.circles.filter(c => c !== id),
+      footballs: (prev.footballs || []).filter(f => f !== id)
+    }));
     
     setTimeout(() => saveToHistory(), 0);
   };
@@ -1681,6 +1758,12 @@ export default function Home() {
     
     e.stopPropagation();
     
+    // Disable icon change on mobile devices
+    const isMobile = window.innerWidth < 768 || 'ontouchstart' in window;
+    if (isMobile) {
+      return; // Don't show color picker on mobile
+    }
+    
     // If we just dragged, don't show color picker
     if (hasDragged) {
       setHasDragged(false);
@@ -1702,31 +1785,37 @@ export default function Home() {
     setShowColorPicker(true);
   };
 
-  const handleCircleMouseDown = (e: React.MouseEvent<HTMLDivElement>, circleId: string) => {
+  const handleCircleMouseDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, circleId: string) => {
     if (mode === 'erase') {
       e.stopPropagation();
       setCircles(prev => prev.filter(c => c.id !== circleId));
       setTimeout(() => saveToHistory(), 0);
     } else {
       e.stopPropagation();
+      if ('preventDefault' in e) {
+        e.preventDefault();
+      }
       setDraggedCircle(circleId);
       setDraggedElement({ type: 'circle', id: circleId });
       
-      const rect = e.currentTarget.getBoundingClientRect();
+      const coords = getEventCoordinates(e, e.currentTarget);
       setDragOffset({
-        x: e.clientX - rect.left - 8,
-        y: e.clientY - rect.top - 8
+        x: coords.x - 8,
+        y: coords.y - 8
       });
     }
   };
 
-  const handleFootballMouseDown = (e: React.MouseEvent<HTMLDivElement>, footballId: string) => {
+  const handleFootballMouseDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, footballId: string) => {
     if (mode === 'erase') {
       e.stopPropagation();
       setFootballs(prev => prev.filter(f => f.id !== footballId));
       setTimeout(() => saveToHistory(), 0);
     } else {
       e.stopPropagation();
+      if ('preventDefault' in e) {
+        e.preventDefault();
+      }
       setHasDragged(false); // Reset drag flag
       setDraggedFootball(footballId);
       setDraggedElement({ type: 'football', id: footballId });
@@ -1741,17 +1830,22 @@ export default function Home() {
         }));
       }
       
-      const rect = e.currentTarget.getBoundingClientRect();
+      const coords = getEventCoordinates(e, e.currentTarget);
       const football = footballs.find(f => f.id === footballId);
       // Calculate offset from the center of the football icon
       setDragOffset({
-        x: e.clientX - rect.left - (football?.size || 32) / 2,
-        y: e.clientY - rect.top - (football?.size || 32) / 2
+        x: coords.x - (football?.size || 32) / 2,
+        y: coords.y - (football?.size || 32) / 2
       });
     }
   };
 
-  const handlePlayerMouseDown = (e: React.MouseEvent<HTMLDivElement>, playerId: string) => {
+  const handlePlayerMouseDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, playerId: string) => {
+    // If route drawing is active, don't handle player drag - let canvas handle it
+    if (selectedRouteStyle) {
+      return; // Let the canvas handle route drawing instead
+    }
+    
     if (mode === 'erase') {
       e.stopPropagation();
       // Check if it's a defensive player or offensive player
@@ -1780,6 +1874,9 @@ export default function Home() {
     } else {
       // Always allow dragging when not in erase mode
       e.stopPropagation();
+      if ('preventDefault' in e) {
+        e.preventDefault(); // Prevent scrolling on touch
+      }
       setHasDragged(false); // Reset drag flag
       setDraggedPlayer(playerId);
       setDraggedElement({ type: 'player', id: playerId });
@@ -1805,21 +1902,28 @@ export default function Home() {
         setLastPoint(null);
       }
       
-      const rect = e.currentTarget.getBoundingClientRect();
+      const coords = getEventCoordinates(e, e.currentTarget);
       // Calculate offset from the center of the player icon (24px is half of 48px)
       setDragOffset({
-        x: e.clientX - rect.left - 24,
-        y: e.clientY - rect.top - 24
+        x: coords.x - 24,
+        y: coords.y - 24
       });
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    // Prevent default scrolling when dragging on touch devices
+    if (draggedPlayer || draggedTextBox || draggedCircle || draggedFootball) {
+      if ('preventDefault' in e) {
+        e.preventDefault();
+      }
+    }
+    
     if (draggedPlayer) {
       setHasDragged(true); // Mark that we're dragging
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffset.x;
-      const y = e.clientY - rect.top - dragOffset.y;
+      const coords = getEventCoordinates(e, e.currentTarget);
+      const x = coords.x - dragOffset.x;
+      const y = coords.y - dragOffset.y;
       
       // Check if it's a defensive player or offensive player
       const isDefensive = defensivePlayers.find(p => p.id === draggedPlayer);
@@ -1871,9 +1975,9 @@ export default function Home() {
         }
       }
     } else if (draggedTextBox) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffset.x;
-      const y = e.clientY - rect.top - dragOffset.y;
+      const coords = getEventCoordinates(e, e.currentTarget);
+      const x = coords.x - dragOffset.x;
+      const y = coords.y - dragOffset.y;
       
       setTextBoxes(prevTextBoxes => 
         prevTextBoxes.map(textBox => 
@@ -1883,9 +1987,9 @@ export default function Home() {
         )
       );
     } else if (draggedCircle) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffset.x;
-      const y = e.clientY - rect.top - dragOffset.y;
+      const coords = getEventCoordinates(e, e.currentTarget);
+      const x = coords.x - dragOffset.x;
+      const y = coords.y - dragOffset.y;
       
       setCircles(prevCircles => 
         prevCircles.map(circle => 
@@ -1896,9 +2000,9 @@ export default function Home() {
       );
     } else if (draggedFootball) {
       setHasDragged(true); // Mark that we're dragging
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffset.x;
-      const y = e.clientY - rect.top - dragOffset.y;
+      const coords = getEventCoordinates(e, e.currentTarget);
+      const x = coords.x - dragOffset.x;
+      const y = coords.y - dragOffset.y;
       
       setFootballs(prevFootballs => 
         prevFootballs.map(football => 
@@ -3230,14 +3334,14 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col">
       {/* Navigation */}
-      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200">
+      <header className="flex items-center justify-between px-4 md:px-8 py-4 md:py-6 bg-white border-b border-gray-200 relative">
         {/* Site Title */}
         <div className="flex items-center">
           <span className="text-gray-800 font-bold text-lg tracking-tight">Flag Tactics</span>
         </div>
 
-        {/* Navigation Links and Login/Logout */}
-        <div className="flex items-center gap-6">
+        {/* Desktop Navigation Links and Login/Logout */}
+        <div className="hidden md:flex items-center gap-6">
           <Link 
             href="/builder" 
             className={`text-sm font-medium transition-colors ${
@@ -3274,11 +3378,76 @@ export default function Home() {
             </button>
           )}
         </div>
+
+        {/* Mobile Hamburger Menu Button */}
+        <button
+          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          aria-label="Menu"
+          data-mobile-menu
+        >
+          <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {showMobileMenu ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            )}
+          </svg>
+        </button>
+
+        {/* Mobile Menu Dropdown */}
+        {showMobileMenu && (
+          <div className="absolute top-full left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-50 md:hidden" data-mobile-menu>
+            <div className="flex flex-col py-2">
+              <Link 
+                href="/builder"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/builder' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Play Builder
+              </Link>
+              <Link 
+                href="/my-plays"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/my-plays' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                My Plays
+              </Link>
+              {!user ? (
+                <Link
+                  href="/login"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="px-4 py-3 bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors text-sm mx-4 my-2 rounded-lg"
+                >
+                  Log In
+                </Link>
+              ) : (
+                <button
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    handleLogout();
+                  }}
+                  className="px-4 py-3 bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors text-sm mx-4 my-2 rounded-lg text-left"
+                >
+                  Log Out
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </header>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar - Folder List */}
-      <div className="w-1/4 bg-white border-r border-gray-200 flex flex-col overflow-y-auto flex-shrink-0">
+      <div className="hidden md:flex w-1/4 bg-white border-r border-gray-200 flex-col overflow-y-auto flex-shrink-0">
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-gray-700">Folders</h2>
@@ -3416,8 +3585,8 @@ export default function Home() {
           </div>
         </div>
         
-        {/* Play Notes Section */}
-        <div className="mt-auto border-t border-gray-200 p-4">
+        {/* Play Notes Section - Desktop Only */}
+        <div className="hidden md:block mt-auto border-t border-gray-200 p-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Play Notes
           </label>
@@ -3432,10 +3601,10 @@ export default function Home() {
       </div>
 
       {/* Canvas Container with Button Row */}
-      <div className="flex-1 bg-gray-50 flex flex-col min-h-0 border-r border-gray-200 min-w-0 overflow-hidden">
+      <div className="bg-gray-50 flex flex-col md:border-r border-gray-200 min-w-0 overflow-hidden">
         {/* Toolbar - Centered over Canvas */}
         <div className="bg-white border-b border-gray-200 flex-shrink-0">
-          <div className="flex items-center justify-center gap-6 py-3 px-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-center gap-3 md:gap-6 py-3 px-4">
             {/* Animation Section */}
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Animation:</span>
@@ -3466,7 +3635,8 @@ export default function Home() {
             {/* Coverage Selector - Only show if defensive players exist */}
             {defensivePlayers.length > 0 && (
               <>
-                <div className="h-10 w-px bg-gray-300"></div>
+                <div className="hidden md:block h-10 w-px bg-gray-300"></div>
+                <div className="w-full md:w-auto h-px md:h-10 md:w-px bg-gray-300 md:bg-transparent"></div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium text-gray-700">Coverage:</span>
                   <select
@@ -3475,7 +3645,7 @@ export default function Home() {
                       const coverage = defaultCoverages.find(c => c.id === e.target.value);
                       setSelectedCoverage(coverage || null);
                     }}
-                    className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="flex-1 md:flex-none px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">Man Coverage (Default)</option>
                     {defaultCoverages.filter(c => c.id !== 'man-coverage').map(coverage => (
@@ -3489,7 +3659,8 @@ export default function Home() {
             )}
             
             {/* Divider */}
-            <div className="h-10 w-px bg-gray-300"></div>
+            <div className="hidden md:block h-10 w-px bg-gray-300"></div>
+            <div className="md:hidden w-full h-px bg-gray-300"></div>
           
             {/* Tools Section */}
             <div className="flex items-center gap-3">
@@ -3528,7 +3699,8 @@ export default function Home() {
             </div>
 
             {/* Divider */}
-            <div className="h-10 w-px bg-gray-300"></div>
+            <div className="hidden md:block h-10 w-px bg-gray-300"></div>
+            <div className="md:hidden w-full h-px bg-gray-300"></div>
           
             {/* Play Options Section */}
             <div className="flex items-center gap-3">
@@ -3602,10 +3774,10 @@ export default function Home() {
         </div>
         
         {/* Canvas Container - left-aligned field with border */}
-        <div className="flex-1 bg-gray-50 relative overflow-hidden min-h-0 min-w-0">
-        <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full">
+        <div className="bg-gray-50 relative overflow-auto" style={{ height: '800px' }}>
+        <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full" style={{ height: '800px' }}>
           {/* Canvas Area */}
-          <div className="bg-white relative overflow-hidden flex-1 min-h-0 min-w-0" data-field-container style={{ width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%', position: 'relative' }}>
+          <div className="bg-white relative overflow-hidden w-full" data-field-container style={{ width: '100%', height: '800px', position: 'relative' }}>
         {/* Save Notification */}
         {showSaveNotification && (
           <div className="absolute top-4 left-6 z-20 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-opacity duration-300 opacity-100">
@@ -3651,9 +3823,36 @@ export default function Home() {
           className={`w-full h-full relative ${
             selectedRouteStyle ? 'cursor-crosshair' : 'cursor-default'
           }`}
+          style={{ touchAction: 'none' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
+          onTouchStart={(e) => {
+            // Don't handle touch if clicking on delete button
+            const target = e.target as HTMLElement;
+            if (target.closest('[data-delete-button]')) {
+              return;
+            }
+            e.preventDefault();
+            const coords = getEventCoordinates(e, e.currentTarget);
+            const syntheticEvent = {
+              ...e,
+              currentTarget: e.currentTarget,
+              clientX: e.touches[0].clientX,
+              clientY: e.touches[0].clientY,
+              preventDefault: () => e.preventDefault(),
+              stopPropagation: () => e.stopPropagation()
+            } as unknown as React.MouseEvent<HTMLDivElement>;
+            handleCanvasMouseDown(syntheticEvent);
+          }}
+          onTouchMove={(e) => {
+            e.preventDefault();
+            handleMouseMove(e);
+          }}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleMouseUp();
+          }}
         >
           {/* Football Field Lines */}
           <div className="absolute inset-0">
@@ -3835,6 +4034,36 @@ export default function Home() {
                 title={`Click to ${route.showArrow !== false ? 'hide' : 'show'} arrow`}
               />
             )}
+            {/* Delete button for selected routes */}
+            {isSelected && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  deleteSingleItem('route', route.id);
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  deleteSingleItem('route', route.id);
+                }}
+                className="absolute w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                style={{
+                  left: `${lastPoint.x - 12}px`,
+                  top: `${lastPoint.y - 12}px`,
+                }}
+                title="Delete route"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
             </React.Fragment>
             );
           })}
@@ -3971,20 +4200,50 @@ export default function Home() {
             />
           )}
 
-          {/* Delete Selected Items Button */}
+          {/* Delete Selected Items Button - Floating Action Button */}
           {((selectedItems.players?.length || 0) > 0 || (selectedItems.routes?.length || 0) > 0 || (selectedItems.textBoxes?.length || 0) > 0 || (selectedItems.circles?.length || 0) > 0 || (selectedItems.footballs?.length || 0) > 0) && (
             <div
-              className="absolute top-4 left-6 z-20"
+              className="fixed bottom-6 right-6 z-[100] pointer-events-auto"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              data-delete-button
             >
               <button
-                onClick={deleteSelectedItems}
-                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-colors"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  console.log('Delete button clicked, selectedItems:', selectedItems);
+                  deleteSelectedItems();
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  console.log('Delete button touched, selectedItems:', selectedItems);
+                  deleteSelectedItems();
+                }}
+                className="bg-red-500 hover:bg-red-600 active:bg-red-700 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 transition-all transform hover:scale-105 pointer-events-auto font-medium"
                 title="Delete selected items"
+                data-delete-button
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Delete Selected
+                <span className="hidden md:inline">Delete Selected</span>
               </button>
             </div>
           )}
@@ -4013,15 +4272,61 @@ export default function Home() {
                   left: animatedPosition.x,
                   top: animatedPosition.y,
                   zIndex: isSelected ? 4 : 3,
-                  transition: isAnimating ? 'none' : 'all 0.1s ease-out'
+                  transition: isAnimating ? 'none' : 'all 0.1s ease-out',
+                  touchAction: selectedRouteStyle ? 'auto' : 'none', // Allow touch events to pass through when route drawing, prevent scrolling when dragging
+                  WebkitTouchCallout: 'none', // Prevent iOS long-press menu
+                  WebkitUserSelect: 'none', // Prevent text selection on drag
+                  userSelect: 'none'
                 }}
                 onMouseDown={(e) => !isAnimating && handlePlayerMouseDown(e, player.id)}
+                onTouchStart={(e) => {
+                  // If route drawing is active, don't handle player touch - let canvas handle it
+                  if (selectedRouteStyle) {
+                    return;
+                  }
+                  e.stopPropagation();
+                  if (!isAnimating) {
+                    handlePlayerMouseDown(e, player.id);
+                  }
+                }}
+                onTouchMove={(e) => {
+                  // Prevent scrolling when dragging player
+                  if (draggedPlayer === player.id) {
+                    e.preventDefault();
+                  }
+                }}
                 onClick={(e) => !isAnimating && handlePlayerClick(e, player.id)}
               >
                 {colorOption?.label && (
                   <span className="text-white text-xs font-bold">
                     {colorOption.label}
                   </span>
+                )}
+                {/* Delete button for selected players - visible on mobile or when selected */}
+                {isSelected && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSingleItem('player', player.id);
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSingleItem('player', player.id);
+                    }}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                    title="Delete player"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 )}
               </div>
             );
@@ -4042,9 +4347,27 @@ export default function Home() {
                 top: textBox.y,
                 fontSize: textBox.fontSize,
                 color: textBox.color,
-                zIndex: 3
+                zIndex: 3,
+                touchAction: selectedRouteStyle ? 'auto' : 'none',
+                WebkitTouchCallout: 'none',
+                WebkitUserSelect: 'none',
+                userSelect: 'none'
               }}
               onMouseDown={(e) => handleTextBoxMouseDown(e, textBox.id)}
+              onTouchStart={(e) => {
+                // If route drawing is active, don't handle textbox touch
+                if (selectedRouteStyle) {
+                  return;
+                }
+                e.stopPropagation();
+                e.preventDefault();
+                handleTextBoxMouseDown(e, textBox.id);
+              }}
+              onTouchMove={(e) => {
+                if (draggedTextBox === textBox.id) {
+                  e.preventDefault();
+                }
+              }}
               onClick={(e) => handleTextBoxClick(e, textBox.id)}
             >
               {editingTextBox === textBox.id ? (
@@ -4063,10 +4386,36 @@ export default function Home() {
                   autoFocus
                 />
               ) : (
-                <div className={`bg-white bg-opacity-80 px-2 py-1 rounded border-2 shadow-sm ${
+                <div className={`relative bg-white bg-opacity-80 px-2 py-1 rounded border-2 shadow-sm ${
                   isSelected ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-300'
                 }`}>
                   {textBox.text}
+                  {/* Delete button for selected text boxes */}
+                  {isSelected && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        deleteSingleItem('textbox', textBox.id);
+                      }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        deleteSingleItem('textbox', textBox.id);
+                      }}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                      title="Delete text box"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -4088,12 +4437,30 @@ export default function Home() {
                 top: circle.y,
                 width: `${circle.radius * 2}px`,
                 height: `${circle.radius * 2}px`,
-                zIndex: 3
+                zIndex: 3,
+                touchAction: selectedRouteStyle ? 'auto' : 'none',
+                WebkitTouchCallout: 'none',
+                WebkitUserSelect: 'none',
+                userSelect: 'none'
               }}
               onMouseDown={(e) => handleCircleMouseDown(e, circle.id)}
+              onTouchStart={(e) => {
+                // If route drawing is active, don't handle circle touch
+                if (selectedRouteStyle) {
+                  return;
+                }
+                e.stopPropagation();
+                e.preventDefault();
+                handleCircleMouseDown(e, circle.id);
+              }}
+              onTouchMove={(e) => {
+                if (draggedCircle === circle.id) {
+                  e.preventDefault();
+                }
+              }}
             >
               <div
-                className={`rounded-full ${
+                className={`relative rounded-full ${
                   isSelected ? 'ring-4 ring-blue-300' : ''
                 }`}
                 style={{
@@ -4102,7 +4469,34 @@ export default function Home() {
                   backgroundColor: circle.color,
                   border: isSelected ? '3px solid blue' : 'none'
                 }}
-              />
+              >
+                {/* Delete button for selected circles */}
+                {isSelected && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSingleItem('circle', circle.id);
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSingleItem('circle', circle.id);
+                    }}
+                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                    title="Delete circle"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
             );
           })}
@@ -4122,20 +4516,66 @@ export default function Home() {
                 top: football.y,
                 width: `${football.size}px`,
                 height: `${football.size}px`,
-                zIndex: 3
+                zIndex: 3,
+                touchAction: selectedRouteStyle ? 'auto' : 'none',
+                WebkitTouchCallout: 'none',
+                WebkitUserSelect: 'none',
+                userSelect: 'none'
               }}
               onMouseDown={(e) => handleFootballMouseDown(e, football.id)}
+              onTouchStart={(e) => {
+                // If route drawing is active, don't handle football touch
+                if (selectedRouteStyle) {
+                  return;
+                }
+                e.stopPropagation();
+                e.preventDefault();
+                handleFootballMouseDown(e, football.id);
+              }}
+              onTouchMove={(e) => {
+                if (draggedFootball === football.id) {
+                  e.preventDefault();
+                }
+              }}
             >
-              <img
-                src="/svgs/american-football.svg"
-                alt="Football"
-                width={football.size}
-                height={football.size}
-                className={isSelected ? 'ring-4 ring-blue-300' : ''}
-                style={{
-                  objectFit: 'contain'
-                }}
-              />
+              <div className="relative">
+                <img
+                  src="/svgs/american-football.svg"
+                  alt="Football"
+                  width={football.size}
+                  height={football.size}
+                  className={isSelected ? 'ring-4 ring-blue-300' : ''}
+                  style={{
+                    objectFit: 'contain'
+                  }}
+                />
+                {/* Delete button for selected footballs */}
+                {isSelected && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSingleItem('football', football.id);
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSingleItem('football', football.id);
+                    }}
+                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg z-50 pointer-events-auto"
+                    title="Delete football"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
             );
           })}
@@ -4303,10 +4743,24 @@ export default function Home() {
           </div>
         </div>
       </div>
+      
+      {/* Play Notes Section - Mobile Only (Below Canvas) */}
+      <div className="md:hidden bg-white border-t border-gray-200 p-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Play Notes
+        </label>
+        <textarea
+          value={playNotes}
+          onChange={(e) => setPlayNotes(e.target.value)}
+          placeholder="QB fakes handoff to Y..."
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm text-gray-900 placeholder:text-gray-500"
+          rows={4}
+        />
+      </div>
       </div>
 
       {/* Right Sidebar - Quick Adds Only */}
-      <div className="bg-white flex flex-col flex-shrink-0 min-h-0 overflow-y-auto" style={{ width: '25%' }}>
+      <div className="hidden md:flex bg-white flex-col flex-shrink-0 min-h-0 overflow-y-auto" style={{ width: '25%' }}>
         {/* Quick Adds Section */}
         <div className="px-4 py-3 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick adds</h2>

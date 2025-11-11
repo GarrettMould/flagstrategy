@@ -154,6 +154,7 @@ export default function MyPlays() {
   const [showCreateFolderModal, setShowCreateFolderModal] = useState<boolean>(false);
   const [newFolderInput, setNewFolderInput] = useState<string>('');
   const [folderCardMenuOpen, setFolderCardMenuOpen] = useState<string | null>(null);
+  const [sidebarFolderMenuOpen, setSidebarFolderMenuOpen] = useState<string | null>(null);
   const [showDeleteFolderModal, setShowDeleteFolderModal] = useState<boolean>(false);
   const [folderToDelete, setFolderToDelete] = useState<string | null>(null);
   const [showRenameFolderModal, setShowRenameFolderModal] = useState<boolean>(false);
@@ -167,59 +168,41 @@ export default function MyPlays() {
   useEffect(() => {
     const loadData = async () => {
       if (user && !authLoading) {
-        // Load from both Firebase and localStorage, then merge
+        // Cloud-first: Load from Firebase as source of truth when logged in
         try {
           const userData = await loadUserData(user.uid);
-          const localPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
-          const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
           
-          // Merge plays: combine Firebase and localStorage plays, with local taking precedence for duplicates
-          let mergedPlays = localPlays;
-          if (userData && userData.savedPlays && userData.savedPlays.length > 0) {
-            const localPlayIds = new Set(localPlays.map((p: SavedPlay) => p.id));
-            const firebasePlaysToAdd = userData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
-            mergedPlays = [...firebasePlaysToAdd, ...localPlays];
-          }
-          
-          // Merge folders: combine Firebase and localStorage folders, with local taking precedence for duplicates
-          let mergedFolders = localFolders;
-          if (userData && userData.folders && userData.folders.length > 0) {
-            const localFolderIds = new Set(localFolders.map((f: Folder) => f.id));
-            const firebaseFoldersToAdd = userData.folders.filter((f: Folder) => !localFolderIds.has(f.id));
-            mergedFolders = [...firebaseFoldersToAdd, ...localFolders];
-          }
-          
-          // Update state with merged data
-          setSavedPlays(mergedPlays);
-          setFolders(mergedFolders);
-          
-          // Update localStorage with merged data
-          localStorage.setItem('savedPlays', JSON.stringify(mergedPlays));
-          localStorage.setItem('playFolders', JSON.stringify(mergedFolders));
-          
-          // If merged data differs from Firebase, sync back to Firebase
-          if (userData && (
-            JSON.stringify(mergedPlays) !== JSON.stringify(userData.savedPlays || []) ||
-            JSON.stringify(mergedFolders) !== JSON.stringify(userData.folders || [])
-          )) {
-            try {
-              const userDataToSave: UserData = {
-                savedPlays: mergedPlays,
-                folders: mergedFolders,
-                updatedAt: new Date().toISOString()
-              };
-              await saveUserData(user.uid, userDataToSave);
-              console.log('Synced merged data back to Firebase');
-            } catch (syncError) {
-              console.error('Error syncing merged data to Firebase:', syncError);
-            }
+          if (userData) {
+            // Use Firebase data as primary source (cloud-first approach)
+            // This ensures deletions and changes are properly reflected
+            const firebasePlays = userData.savedPlays || [];
+            const firebaseFolders = userData.folders || [];
+            
+            // Update state with Firebase data
+            setSavedPlays(firebasePlays);
+            setFolders(firebaseFolders);
+            
+            // Update localStorage to match Firebase (for offline support)
+            localStorage.setItem('savedPlays', JSON.stringify(firebasePlays));
+            localStorage.setItem('playFolders', JSON.stringify(firebaseFolders));
+            
+            console.log('Loaded data from Firebase:', {
+              playsCount: firebasePlays.length,
+              foldersCount: firebaseFolders.length
+            });
+          } else {
+            // No Firebase data, use localStorage as fallback
+            const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+            const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+            setSavedPlays(plays);
+            setFolders(savedFolders);
           }
         } catch (error) {
           console.error('Error loading user data from Firebase:', error);
           // Fall back to localStorage on error
-    const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+          const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
           const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
-    setSavedPlays(plays);
+          setSavedPlays(plays);
           setFolders(savedFolders);
         }
       } else if (!user && !authLoading) {
@@ -258,16 +241,19 @@ export default function MyPlays() {
       if (folderCardMenuOpen && !target.closest('[data-folder-card-menu]')) {
         setFolderCardMenuOpen(null);
       }
+      if (sidebarFolderMenuOpen && !target.closest('[data-sidebar-folder-menu]')) {
+        setSidebarFolderMenuOpen(null);
+      }
     };
 
-    if (menuOpenForPlay || folderMenuOpen || folderCardMenuOpen) {
+    if (menuOpenForPlay || folderMenuOpen || folderCardMenuOpen || sidebarFolderMenuOpen) {
       // Use click instead of mousedown to allow onClick handlers to fire first
       document.addEventListener('click', handleClickOutside);
       return () => {
         document.removeEventListener('click', handleClickOutside);
       };
     }
-  }, [menuOpenForPlay, folderMenuOpen, folderCardMenuOpen]);
+  }, [menuOpenForPlay, folderMenuOpen, folderCardMenuOpen, sidebarFolderMenuOpen]);
 
   // Helper functions for folder navigation
   const getFoldersInCurrentFolder = (parentId: string | null): (Folder | { id: string; name: string; createdAt: string; parentFolderId: null; isAllPlays: boolean })[] => {
@@ -543,24 +529,22 @@ export default function MyPlays() {
     
     // Sync to Firebase - await to ensure deletion is saved before any reload
     if (user) {
-        try {
-        // Load existing data from Firebase to get folders
-          const existingData = await loadUserData(user.uid);
-        
-        // Save the updated plays directly to Firebase (no merging - deleted play should be removed)
-          const userData: UserData = {
+      try {
+        // Use the updated local data directly - don't merge with old Firebase data
+        // This ensures the deletion is properly saved to Firebase
+        const userData: UserData = {
           savedPlays: updatedPlays, // Use the filtered plays directly
-          folders: existingData?.folders || folders,
-            updatedAt: new Date().toISOString()
-          };
-          
-          await saveUserData(user.uid, userData);
-          console.log('Play deleted from Firebase successfully');
-        } catch (error) {
-          console.error('Error syncing play deletion to Firebase:', error);
+          folders: folders, // Use current state folders
+          updatedAt: new Date().toISOString()
+        };
+        
+        await saveUserData(user.uid, userData);
+        console.log('Play deleted from Firebase successfully');
+      } catch (error) {
+        console.error('Error syncing play deletion to Firebase:', error);
         // Keep local deletion but warn user - they may need to delete again
         alert('Play deleted locally but failed to sync to cloud. The play may reappear after refresh. Please try again.');
-        }
+      }
     }
   };
 
@@ -666,27 +650,25 @@ export default function MyPlays() {
     // Sync to Firebase if user is logged in
     if (user) {
       try {
-        const existingData = await loadUserData(user.uid);
-        let mergedPlays = updatedPlays;
-        
-        if (existingData && existingData.savedPlays.length > 0) {
-          const existingPlayIds = new Set(existingData.savedPlays.map((p: SavedPlay) => p.id));
-          const localPlayIds = new Set(updatedPlays.map((p: SavedPlay) => p.id));
-          const playsToKeep = existingData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
-          mergedPlays = [...playsToKeep, ...updatedPlays];
-        }
-        
+        // Use the updated local data directly - don't merge with old Firebase data
+        // This ensures the deletion is properly saved to Firebase
         const userData: UserData = {
-          savedPlays: mergedPlays,
+          savedPlays: updatedPlays,
           folders: updatedFolders,
           updatedAt: new Date().toISOString()
         };
         await saveUserData(user.uid, userData);
+        console.log('Folder deleted from Firebase successfully');
       } catch (error) {
         console.error('Error syncing folder deletion to Firebase:', error);
+        // Show alert to user so they know the deletion might not persist
+        alert('Folder deleted locally but failed to sync to cloud. The folder may reappear after refresh. Please try again.');
       }
     }
     
+    // Close modals and reset state
+    setShowDeleteFolderModal(false);
+    setFolderToDelete(null);
     setFolderMenuOpen(null);
   };
 
@@ -1765,7 +1747,7 @@ export default function MyPlays() {
               .map((folder) => {
                 const hasChildren = folders.some(f => f.parentFolderId === folder.id);
                 return (
-              <div key={folder.id} style={{ paddingLeft: `${folder.level * 16}px` }}>
+              <div key={folder.id} style={{ paddingLeft: `${folder.level * 16}px` }} className="group relative">
                 <div className="flex items-center gap-1">
                     {hasChildren ? (
                   <button
@@ -1795,6 +1777,69 @@ export default function MyPlays() {
                     </svg>
                     <span className="truncate">{folder.name}</span>
                   </button>
+                  {/* Three Dots Menu Button */}
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()} data-sidebar-folder-menu>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSidebarFolderMenuOpen(sidebarFolderMenuOpen === folder.id ? null : folder.id);
+                      }}
+                      className="flex items-center justify-center hover:bg-gray-100 transition-colors rounded p-1"
+                      data-sidebar-folder-menu
+                    >
+                      <svg className="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                      </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {sidebarFolderMenuOpen === folder.id && (
+                      <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-30 min-w-[160px] py-1" data-sidebar-folder-menu>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditFolderName(folder.id, folder.name);
+                            setSidebarFolderMenuOpen(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          data-sidebar-folder-menu
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          Rename
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleShareFolder(folder.id, folder.name);
+                            setSidebarFolderMenuOpen(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          data-sidebar-folder-menu
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                          </svg>
+                          Share
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFolder(folder.id);
+                            setSidebarFolderMenuOpen(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                          data-sidebar-folder-menu
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                          Delete Forever
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               )})}

@@ -590,7 +590,7 @@ export default function SharedFolderPage() {
               href="/login"
               className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
             >
-              Sign Up / Log In
+              Login
             </Link>
           ) : (
             <>
@@ -625,7 +625,7 @@ export default function SharedFolderPage() {
                   Sign up for free to build, organize, and share your own playbook.
                 </p>
                 <Link
-                  href="/login"
+                  href="/login?signup=true"
                   className="inline-block px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
                 >
                   Get Started Free

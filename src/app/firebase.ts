@@ -451,14 +451,47 @@ export async function saveUserData(userId: string, data: UserData): Promise<void
       folders: data.folders || []
     });
     
-    // Check for nested arrays in playerRouteAssociations
+    // Check for nested arrays in playerRouteAssociations and ensure proper format
     if (data.savedPlays) {
       data.savedPlays.forEach((play, index) => {
-        if (play.playerRouteAssociations && Array.isArray(play.playerRouteAssociations)) {
-          console.log(`Play ${index} (${play.name}) has array format playerRouteAssociations:`, play.playerRouteAssociations);
-          // Convert array format to object format
-          play.playerRouteAssociations = Object.fromEntries(play.playerRouteAssociations as [string, string[]][]);
-          console.log(`Converted to object format:`, play.playerRouteAssociations);
+        try {
+          if (play.playerRouteAssociations) {
+            if (Array.isArray(play.playerRouteAssociations)) {
+              // Check if it's an array of tuples [string, string[]]
+              const isValidArrayFormat = play.playerRouteAssociations.every(
+                item => Array.isArray(item) && item.length === 2 && typeof item[0] === 'string'
+              );
+              
+              if (isValidArrayFormat) {
+                console.log(`Play ${index} (${play.name}) has array format playerRouteAssociations:`, play.playerRouteAssociations);
+                // Convert array format to object format
+                play.playerRouteAssociations = Object.fromEntries(play.playerRouteAssociations as [string, string[]][]);
+                console.log(`Converted to object format:`, play.playerRouteAssociations);
+              } else {
+                // Invalid array format, convert to empty object
+                console.warn(`Play ${index} (${play.name}) has invalid array format playerRouteAssociations, converting to object`);
+                play.playerRouteAssociations = {};
+              }
+            } else if (typeof play.playerRouteAssociations === 'object') {
+              // Already in object format, ensure it's valid
+              const obj = play.playerRouteAssociations as { [key: string]: string[] };
+              const sanitized: { [key: string]: string[] } = {};
+              for (const key in obj) {
+                if (typeof key === 'string' && Array.isArray(obj[key])) {
+                  sanitized[key] = obj[key].filter((id: unknown) => typeof id === 'string');
+                }
+              }
+              play.playerRouteAssociations = sanitized;
+            } else {
+              // Invalid format, remove it
+              console.warn(`Play ${index} (${play.name}) has invalid playerRouteAssociations format, removing`);
+              delete play.playerRouteAssociations;
+            }
+          }
+        } catch (conversionError) {
+          console.error(`Error converting playerRouteAssociations for play ${index} (${play.name}):`, conversionError);
+          // Remove invalid playerRouteAssociations to prevent save failure
+          delete play.playerRouteAssociations;
         }
       });
     }
