@@ -249,6 +249,9 @@ export default function Home() {
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   const saveHistoryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const historyIndexRef = useRef<number>(-1);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const touchStartTimeRef = useRef<number>(0);
+  const touchStartPositionRef = useRef<{ x: number; y: number } | null>(null);
   
   // Keep ref in sync with state
   useEffect(() => {
@@ -3823,7 +3826,7 @@ export default function Home() {
           className={`w-full h-full relative ${
             selectedRouteStyle ? 'cursor-crosshair' : 'cursor-default'
           }`}
-          style={{ touchAction: 'none' }}
+          style={{ touchAction: 'pan-y' }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -3833,7 +3836,15 @@ export default function Home() {
             if (target.closest('[data-delete-button]')) {
               return;
             }
-            e.preventDefault();
+            
+            // Store touch start time and position for scroll detection
+            touchStartTimeRef.current = Date.now();
+            touchStartPositionRef.current = {
+              x: e.touches[0].clientX,
+              y: e.touches[0].clientY
+            };
+            
+            // Don't prevent default yet - wait to see if it's a drag or scroll
             const coords = getEventCoordinates(e, e.currentTarget);
             const syntheticEvent = {
               ...e,
@@ -3846,12 +3857,35 @@ export default function Home() {
             handleCanvasMouseDown(syntheticEvent);
           }}
           onTouchMove={(e) => {
-            e.preventDefault();
-            handleMouseMove(e);
+            // Only prevent default if we're actually dragging something
+            if (isDragging || draggedPlayer || draggedTextBox || draggedCircle || draggedFootball || isSelecting || isDrawingRoute) {
+              e.preventDefault();
+              handleMouseMove(e);
+            } else if (touchStartPositionRef.current) {
+              // Check if this looks like a scroll (primarily vertical movement)
+              const deltaX = Math.abs(e.touches[0].clientX - touchStartPositionRef.current.x);
+              const deltaY = Math.abs(e.touches[0].clientY - touchStartPositionRef.current.y);
+              
+              // If movement is primarily vertical and significant, allow scrolling
+              if (deltaY > 10 && deltaY > deltaX * 1.5) {
+                // This looks like scrolling, don't prevent default
+                return;
+              }
+              
+              // Otherwise, it might be a drag starting - prevent default and handle
+              setIsDragging(true);
+              e.preventDefault();
+              handleMouseMove(e);
+            }
           }}
           onTouchEnd={(e) => {
-            e.preventDefault();
+            // Only prevent default if we were dragging
+            if (isDragging || draggedPlayer || draggedTextBox || draggedCircle || draggedFootball || isSelecting || isDrawingRoute) {
+              e.preventDefault();
+            }
             handleMouseUp();
+            setIsDragging(false);
+            touchStartPositionRef.current = null;
           }}
         >
           {/* Football Field Lines */}
