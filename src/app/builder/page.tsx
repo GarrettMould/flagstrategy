@@ -4827,7 +4827,6 @@ export default function Home() {
           })}
 
         </div>
-          </div>
 
           {/* Bottom Toolbar: Player Icons (left) and Route Tools (right) */}
           <div className="bg-white border-t border-gray-200 flex flex-col md:flex-row flex-shrink-0 px-6 py-4">
@@ -5117,6 +5116,7 @@ export default function Home() {
                   </button>
             </div>
           </div>
+        </div>
         </div>
       </div>
       </div>
