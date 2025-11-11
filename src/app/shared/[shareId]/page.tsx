@@ -59,6 +59,7 @@ interface SavedPlay {
   createdAt?: string;
   playerRouteAssociations?: [string, string[]][];
   playNotes?: string;
+  sharedToCommunity?: boolean;
 }
 
 const colors = [
