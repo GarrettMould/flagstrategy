@@ -88,8 +88,9 @@ function LoginForm() {
       <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
         {/* Site Title */}
         <div className="flex items-center">
-          <Link href="/" className="text-gray-800 font-bold text-lg tracking-tight hover:text-gray-900 transition-colors">
-            Flag Tactics
+          <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
+            <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
+            <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
           </Link>
         </div>
 
@@ -287,8 +288,9 @@ export default function LoginPage() {
       <div className="h-screen flex flex-col bg-gray-50">
         <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center">
-            <Link href="/" className="text-gray-800 font-bold text-lg tracking-tight hover:text-gray-900 transition-colors">
-              Flag Tactics
+            <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
+              <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
+              <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
             </Link>
           </div>
         </header>

@@ -20,8 +20,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Flag Tactics",
-  description: "Flag Tactics - Design professional football plays with an intuitive drag-and-drop play builder",
+  title: "Flag Plays",
+  description: "Flag Plays - Design professional football plays with an intuitive drag-and-drop play builder",
 };
 
 export default function RootLayout({

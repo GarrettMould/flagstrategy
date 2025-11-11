@@ -3340,7 +3340,10 @@ export default function Home() {
       <header className="flex items-center justify-between px-4 md:px-8 py-4 md:py-6 bg-white border-b border-gray-200 relative">
         {/* Site Title */}
         <div className="flex items-center">
-          <span className="text-gray-800 font-bold text-lg tracking-tight">Flag Tactics</span>
+          <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
+            <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
+            <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
+          </Link>
         </div>
 
         {/* Desktop Navigation Links and Login/Logout */}
