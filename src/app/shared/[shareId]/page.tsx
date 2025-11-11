@@ -1,9 +1,9 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { getSharedFolder, SharedFolder } from '../../firebase';
+import { getSharedFolder, SharedFolder, loadUserData, saveUserData, UserData, signUp, logIn, signInWithGoogle } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Player {
@@ -127,14 +127,41 @@ function UserMenu() {
   );
 }
 
+interface Folder {
+  id: string;
+  name: string;
+  createdAt: string;
+  parentFolderId?: string | null;
+}
+
 export default function SharedFolderPage() {
   const params = useParams();
   const shareId = params.shareId as string;
+  const router = useRouter();
   const { user } = useAuth();
   const [sharedFolder, setSharedFolder] = useState<SharedFolder | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
+  const [menuOpenForPlay, setMenuOpenForPlay] = useState<string | null>(null);
+  const [showAddToFolderModal, setShowAddToFolderModal] = useState<boolean>(false);
+  const [playToAddToFolder, setPlayToAddToFolder] = useState<SavedPlay | null>(null);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [newFolderName, setNewFolderName] = useState<string>('');
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(true);
+  const [showTooltip, setShowTooltip] = useState<string | null>(null);
+
+  const handleComingSoon = (feature: string) => {
+    setShowTooltip(feature);
+    setTimeout(() => setShowTooltip(null), 2000);
+  };
 
   useEffect(() => {
     // Only run on client side
@@ -168,6 +195,131 @@ export default function SharedFolderPage() {
 
     fetchData();
   }, [shareId]);
+
+  // Load user folders when user is logged in
+  useEffect(() => {
+    const loadFolders = async () => {
+      if (user) {
+        try {
+          const userData = await loadUserData(user.uid);
+          if (userData && userData.folders) {
+            setFolders(userData.folders);
+          } else {
+            // Fall back to localStorage
+            const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+            setFolders(localFolders);
+          }
+        } catch (error) {
+          console.error('Error loading user folders:', error);
+          // Fall back to localStorage
+          const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+          setFolders(localFolders);
+        }
+      } else {
+        // Not logged in - load from localStorage only
+        const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+        setFolders(localFolders);
+      }
+    };
+
+    loadFolders();
+  }, [user]);
+
+  const handleRemixPlay = (play: SavedPlay) => {
+    // Store the play data in localStorage for the builder page to load
+    localStorage.setItem('editingPlay', JSON.stringify(play));
+    // Navigate to the builder page
+    router.push('/builder');
+    setMenuOpenForPlay(null);
+  };
+
+  const handleAddToFolder = (play: SavedPlay) => {
+    if (!user) {
+      // Show login modal instead of redirecting
+      setShowLoginModal(true);
+      setMenuOpenForPlay(null);
+      return;
+    }
+    setPlayToAddToFolder(play);
+    setShowAddToFolderModal(true);
+    setMenuOpenForPlay(null);
+  };
+
+  const addPlayToFolder = async (play: SavedPlay, folderId: string | null) => {
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    // Create a copy of the play with a new ID
+    const newPlay: SavedPlay = {
+      ...play,
+      id: Date.now().toString(),
+      folderId: folderId || undefined,
+      createdAt: new Date().toISOString(),
+      sharedToCommunity: false // This is now the user's copy
+    };
+
+    try {
+      // Load existing user data
+      const existingData = await loadUserData(user.uid);
+      const existingPlays = existingData?.savedPlays || [];
+      
+      // Add the new play
+      const updatedPlays = [...existingPlays, newPlay];
+      
+      // Update localStorage
+      localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
+      
+      // Save to Firebase
+      const userData: UserData = {
+        savedPlays: updatedPlays,
+        folders: folders,
+        updatedAt: new Date().toISOString()
+      };
+      
+      await saveUserData(user.uid, userData);
+      
+      setShowAddToFolderModal(false);
+      setPlayToAddToFolder(null);
+    } catch (error) {
+      console.error('Error adding play to folder:', error);
+      setError('Failed to add play to folder. Please try again.');
+    }
+  };
+
+  const createNewFolder = async () => {
+    if (!newFolderName.trim()) return;
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+    
+    const newFolder: Folder = {
+      id: Date.now().toString(),
+      name: newFolderName.trim(),
+      createdAt: new Date().toISOString(),
+      parentFolderId: null
+    };
+    
+    const updatedFolders = [...folders, newFolder];
+    setFolders(updatedFolders);
+    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
+    setNewFolderName('');
+    
+    // Sync to Firebase
+    try {
+      const existingData = await loadUserData(user.uid);
+      const userData: UserData = {
+        savedPlays: existingData?.savedPlays || [],
+        folders: updatedFolders,
+        updatedAt: new Date().toISOString()
+      };
+      await saveUserData(user.uid, userData);
+    } catch (error) {
+      console.error('Error syncing folder creation to Firebase:', error);
+    }
+  };
 
   const importPlays = () => {
     if (!sharedFolder || !sharedFolder.plays || sharedFolder.plays.length === 0) {
@@ -594,24 +746,48 @@ export default function SharedFolderPage() {
           >
             My Plays
           </Link>
-          <Link 
-            href="/playbooks" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Playbooks
-          </Link>
-          <Link 
-            href="/community-plays" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Community Plays
-          </Link>
-          <Link 
-            href="/coaching-resources" 
-            className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Coaching Resources
-          </Link>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('playbooks')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Playbooks
+            </button>
+            {showTooltip === 'playbooks' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('community-plays')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Community Plays
+            </button>
+            {showTooltip === 'community-plays' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('coaching-resources')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Coaching Resources
+            </button>
+            {showTooltip === 'coaching-resources' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
           {!user ? (
             <Link
               href="/login"
@@ -682,6 +858,52 @@ export default function SharedFolderPage() {
                 <div className="w-full bg-white relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
                   {/* Play Content */}
                   {renderPlayPreview(play)}
+                  {/* Three-dot menu button */}
+                  <div className="absolute top-2 right-2 z-10">
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
+                      }}
+                      className="p-1.5 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors"
+                    >
+                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                      </svg>
+                    </button>
+                    {/* Menu dropdown */}
+                    {menuOpenForPlay === play.id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRemixPlay(play);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Remix Play
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleAddToFolder(play);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
+                          Add to Folder
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Play Name */}
@@ -730,6 +952,326 @@ export default function SharedFolderPage() {
                 Import
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add to Folder Modal */}
+      {showAddToFolderModal && playToAddToFolder && (
+        <div 
+          className="fixed inset-0 bg-white/30 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowAddToFolderModal(false);
+            setPlayToAddToFolder(null);
+            setNewFolderName('');
+          }}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4 border border-gray-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-2xl font-bold text-gray-900 mb-6 tracking-tight">
+              Add Play to Folder
+            </h3>
+            
+            <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+              <button
+                onClick={() => {
+                  addPlayToFolder(playToAddToFolder, null);
+                }}
+                className="w-full px-4 py-2 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="text-sm font-medium text-gray-900">None (All Plays)</div>
+              </button>
+              
+              {folders.map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => {
+                    addPlayToFolder(playToAddToFolder, folder.id);
+                  }}
+                  className="w-full px-4 py-2 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <div className="text-sm font-medium text-gray-900">{folder.name}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* Create New Folder */}
+            <div className="border-t border-gray-200 pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Create New Folder
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      createNewFolder();
+                      if (newFolderName.trim()) {
+                        const newFolder = folders[folders.length - 1];
+                        if (newFolder) {
+                          addPlayToFolder(playToAddToFolder, newFolder.id);
+                        }
+                      }
+                    }
+                  }}
+                  placeholder="Folder name"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 text-sm text-gray-900 placeholder:text-gray-500"
+                />
+                <button
+                  onClick={() => {
+                    createNewFolder();
+                    if (newFolderName.trim()) {
+                      const newFolder = folders[folders.length - 1];
+                      if (newFolder) {
+                        addPlayToFolder(playToAddToFolder, newFolder.id);
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Login Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50">
+          {/* Subtle blur overlay */}
+          <div 
+            className="absolute inset-0 backdrop-blur-sm bg-black/20"
+            onClick={() => {
+              setShowLoginModal(false);
+              setLoginError('');
+            }}
+          ></div>
+          {/* Modal content */}
+          <div 
+            className="relative bg-white rounded-lg shadow-xl p-6 pb-8 w-full max-w-md mx-4 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button - X in top right, own row */}
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => {
+                  setShowLoginModal(false);
+                  setLoginError('');
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <h2 className="text-3xl font-bold mb-2 text-gray-900 text-center">
+              Save Plays. Share Plays. Win Games.
+            </h2>
+            <p className="text-sm text-gray-600 text-center mb-6">
+              {isSignUp ? (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setIsSignUp(false);
+                      setLoginError('');
+                    }}
+                    className="font-medium text-blue-600 hover:text-blue-500"
+                  >
+                    Sign in
+                  </button>
+                </>
+              ) : (
+                <>
+                  Don&apos;t have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setIsSignUp(true);
+                      setLoginError('');
+                    }}
+                    className="font-medium text-blue-600 hover:text-blue-500"
+                  >
+                    Sign up
+                  </button>
+                </>
+              )}
+            </p>
+            <form className="space-y-4" onSubmit={async (e) => {
+              e.preventDefault();
+              setLoginError('');
+              setLoginLoading(true);
+              try {
+                if (isSignUp) {
+                  await signUp(loginEmail, loginPassword);
+                } else {
+                  await logIn(loginEmail, loginPassword);
+                }
+                setShowLoginModal(false);
+                setLoginError('');
+                // Wait a moment for auth context to update, then reload folders
+                setTimeout(async () => {
+                  const { user: updatedUser } = await import('../../contexts/AuthContext');
+                  // Actually, we need to get the user from the auth context hook
+                  // The useEffect for loading folders will handle this automatically
+                }, 500);
+              } catch (error: any) {
+                if (error.code === 'auth/email-already-in-use') {
+                  setLoginError('This email is already registered. Please sign in instead.');
+                } else if (error.code === 'auth/weak-password') {
+                  setLoginError('Password should be at least 6 characters.');
+                } else if (error.code === 'auth/invalid-email') {
+                  setLoginError('Invalid email address.');
+                } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                  setLoginError('Invalid email or password.');
+                } else {
+                  setLoginError(error.message || 'Failed to sign in. Please try again.');
+                }
+              } finally {
+                setLoginLoading(false);
+              }
+            }}>
+              {loginError && (
+                <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm" role="alert">
+                  <span className="block sm:inline">{loginError}</span>
+                </div>
+              )}
+              <div className="rounded-md shadow-sm -space-y-px">
+                <div>
+                  <label htmlFor="login-email" className="sr-only">
+                    Email address
+                  </label>
+                  <input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Email address"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                  />
+                </div>
+                <div className="relative">
+                  <label htmlFor="login-password" className="sr-only">
+                    Password
+                  </label>
+                  <input
+                    id="login-password"
+                    name="password"
+                    type={showLoginPassword ? 'text' : 'password'}
+                    autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                    required
+                    className="appearance-none rounded-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowLoginPassword(!showLoginPassword);
+                    }}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 z-10 cursor-pointer"
+                    aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showLoginPassword ? (
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      </svg>
+                    ) : (
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  type="submit"
+                  disabled={loginLoading || googleLoginLoading}
+                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loginLoading ? 'Please wait...' : isSignUp ? 'Sign up' : 'Sign in'}
+                </button>
+                
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300" />
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                  </div>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLoginError('');
+                    setGoogleLoginLoading(true);
+                    try {
+                      await signInWithGoogle();
+                      setShowLoginModal(false);
+                      // The useEffect for loading folders will automatically reload when user changes
+                    } catch (error: any) {
+                      if (error.code === 'auth/popup-closed-by-user') {
+                        setLoginError('Sign-in popup was closed. Please try again.');
+                      } else if (error.code === 'auth/popup-blocked') {
+                        setLoginError('Popup was blocked. Please allow popups for this site.');
+                      } else {
+                        setLoginError(error.message || 'Failed to sign in with Google. Please try again.');
+                      }
+                    } finally {
+                      setGoogleLoginLoading(false);
+                    }
+                  }}
+                  disabled={loginLoading || googleLoginLoading}
+                  className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {googleLoginLoading ? (
+                    'Please wait...'
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        />
+                      </svg>
+                      Sign in with Google
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

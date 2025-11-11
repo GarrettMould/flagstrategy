@@ -14,8 +14,14 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showTooltip, setShowTooltip] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
+
+  const handleComingSoon = (feature: string) => {
+    setShowTooltip(feature);
+    setTimeout(() => setShowTooltip(null), 2000);
+  };
 
   // Check for signup query parameter on mount
   useEffect(() => {
@@ -116,36 +122,48 @@ function LoginForm() {
           >
             My Plays
           </Link>
-          <Link 
-            href="/playbooks" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/playbooks' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Playbooks
-          </Link>
-          <Link 
-            href="/community-plays" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/community-plays' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Community Plays
-          </Link>
-          <Link 
-            href="/coaching-resources" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/coaching-resources' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Coaching Resources
-          </Link>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('playbooks')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Playbooks
+            </button>
+            {showTooltip === 'playbooks' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('community-plays')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Community Plays
+            </button>
+            {showTooltip === 'community-plays' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('coaching-resources')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Coaching Resources
+            </button>
+            {showTooltip === 'coaching-resources' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

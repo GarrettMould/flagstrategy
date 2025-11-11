@@ -154,6 +154,12 @@ export default function MyPlays() {
   const [showCreateFolderModal, setShowCreateFolderModal] = useState<boolean>(false);
   const [newFolderInput, setNewFolderInput] = useState<string>('');
   const [folderCardMenuOpen, setFolderCardMenuOpen] = useState<string | null>(null);
+  const [showTooltip, setShowTooltip] = useState<string | null>(null);
+
+  const handleComingSoon = (feature: string) => {
+    setShowTooltip(feature);
+    setTimeout(() => setShowTooltip(null), 2000);
+  };
   const [sidebarFolderMenuOpen, setSidebarFolderMenuOpen] = useState<string | null>(null);
   const [showDeleteFolderModal, setShowDeleteFolderModal] = useState<boolean>(false);
   const [folderToDelete, setFolderToDelete] = useState<string | null>(null);
@@ -200,9 +206,9 @@ export default function MyPlays() {
         } catch (error) {
           console.error('Error loading user data from Firebase:', error);
           // Fall back to localStorage on error
-          const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+    const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
           const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
-          setSavedPlays(plays);
+    setSavedPlays(plays);
           setFolders(savedFolders);
         }
       } else if (!user && !authLoading) {
@@ -519,6 +525,12 @@ export default function MyPlays() {
   const confirmDelete = async () => {
     if (!playToDelete) return;
     
+    // Delete the play from savedPlays entirely
+    // This removes it from:
+    // 1. The current folder view (if it was in a folder)
+    // 2. The "All Plays" view (since All Plays shows all plays in savedPlays)
+    // 3. Any other folder it might have been in (though plays should only be in one folder)
+    // This is the correct behavior: deleting a play removes it completely from the system
     const updatedPlays = savedPlays.filter(play => play.id !== playToDelete);
     setSavedPlays(updatedPlays);
     localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
@@ -532,19 +544,19 @@ export default function MyPlays() {
       try {
         // Use the updated local data directly - don't merge with old Firebase data
         // This ensures the deletion is properly saved to Firebase
-        const userData: UserData = {
+          const userData: UserData = {
           savedPlays: updatedPlays, // Use the filtered plays directly
           folders: folders, // Use current state folders
-          updatedAt: new Date().toISOString()
-        };
-        
-        await saveUserData(user.uid, userData);
-        console.log('Play deleted from Firebase successfully');
-      } catch (error) {
-        console.error('Error syncing play deletion to Firebase:', error);
+            updatedAt: new Date().toISOString()
+          };
+          
+          await saveUserData(user.uid, userData);
+          console.log('Play deleted from Firebase successfully');
+        } catch (error) {
+          console.error('Error syncing play deletion to Firebase:', error);
         // Keep local deletion but warn user - they may need to delete again
         alert('Play deleted locally but failed to sync to cloud. The play may reappear after refresh. Please try again.');
-      }
+        }
     }
   };
 
@@ -1364,12 +1376,12 @@ export default function MyPlays() {
 
   // Show login page if user is not logged in
   if (!authLoading && !user) {
-    return (
-      <div className="h-screen flex flex-col bg-gray-50">
-        {/* Navigation */}
-        <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
-          {/* Site Title */}
-          <div className="flex items-center">
+  return (
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Navigation */}
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+        {/* Site Title */}
+        <div className="flex items-center">
             <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
               <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
               <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
@@ -1398,36 +1410,48 @@ export default function MyPlays() {
             >
               My Plays
             </Link>
-            <Link 
-              href="/playbooks" 
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/playbooks' 
-                  ? 'text-gray-900' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Playbooks
-            </Link>
-            <Link 
-              href="/community-plays" 
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/community-plays' 
-                  ? 'text-gray-900' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Community Plays
-            </Link>
-            <Link 
-              href="/coaching-resources" 
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/coaching-resources' 
-                  ? 'text-gray-900' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Coaching Resources
-            </Link>
+            <div className="relative">
+              <button
+                onClick={() => handleComingSoon('playbooks')}
+                className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+              >
+                Playbooks
+              </button>
+              {showTooltip === 'playbooks' && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                  Coming Soon!
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => handleComingSoon('community-plays')}
+                className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+              >
+                Community Plays
+              </button>
+              {showTooltip === 'community-plays' && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                  Coming Soon!
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => handleComingSoon('coaching-resources')}
+                className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+              >
+                Coaching Resources
+              </button>
+              {showTooltip === 'coaching-resources' && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                  Coming Soon!
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1633,36 +1657,49 @@ export default function MyPlays() {
           >
             My Plays
           </Link>
-          <Link 
-            href="/playbooks" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/playbooks' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Playbooks
-          </Link>
-          <Link 
-            href="/community-plays" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/community-plays' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Community Plays
-          </Link>
-          <Link 
-            href="/coaching-resources" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/coaching-resources' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Coaching Resources
-          </Link>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('playbooks')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Playbooks
+            </button>
+            {showTooltip === 'playbooks' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('community-plays')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Community Plays
+            </button>
+            {showTooltip === 'community-plays' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('coaching-resources')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Coaching Resources
+            </button>
+            {showTooltip === 'coaching-resources' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="h-6 w-px bg-gray-300"></div>
           {!user ? (
             <Link
               href="/login"
@@ -1900,10 +1937,10 @@ export default function MyPlays() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                           Delete Forever
-                        </button>
-                      </div>
+                  </button>
+                </div>
                     )}
-                  </div>
+              </div>
                 </div>
               </div>
               )})}
@@ -3127,23 +3164,14 @@ export default function MyPlays() {
                 <p className="text-gray-600 mb-4 text-base">
                   Share link copied to clipboard! You can share this link with others.
                 </p>
-                <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
                   <input
                     type="text"
                     value={shareUrl}
                     readOnly
-                    className="flex-1 text-sm text-gray-900 bg-transparent border-none outline-none"
+                    className="w-full text-sm text-gray-900 bg-transparent border-none outline-none"
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                   />
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(shareUrl);
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
-                    title="Copy again"
-                  >
-                    Copy
-                  </button>
                 </div>
               </div>
             )}

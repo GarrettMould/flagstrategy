@@ -2,16 +2,37 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { loadCommunityPlays, SavedPlay } from '../firebase';
+import { loadCommunityPlays, SavedPlay, loadUserData, saveUserData, UserData, createShareableLink } from '../firebase';
+
+interface Folder {
+  id: string;
+  name: string;
+  createdAt: string;
+  parentFolderId?: string | null;
+}
 
 export default function CommunityPlays() {
   const { user, loading: authLoading } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [communityPlays, setCommunityPlays] = useState<SavedPlay[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
+  const [menuOpenForPlay, setMenuOpenForPlay] = useState<string | null>(null);
+  const [showAddToFolderModal, setShowAddToFolderModal] = useState<boolean>(false);
+  const [playToAddToFolder, setPlayToAddToFolder] = useState<SavedPlay | null>(null);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [newFolderName, setNewFolderName] = useState<string>('');
+  const [shareUrl, setShareUrl] = useState<string>('');
+  const [showShareModal, setShowShareModal] = useState<boolean>(false);
+  const [showTooltip, setShowTooltip] = useState<string | null>(null);
+
+  const handleComingSoon = (feature: string) => {
+    setShowTooltip(feature);
+    setTimeout(() => setShowTooltip(null), 2000);
+  };
 
   useEffect(() => {
     const loadPlays = async () => {
@@ -31,11 +52,40 @@ export default function CommunityPlays() {
     loadPlays();
   }, []);
 
+  // Load user folders when user is logged in
+  useEffect(() => {
+    const loadFolders = async () => {
+      if (user && !authLoading) {
+        try {
+          const userData = await loadUserData(user.uid);
+          if (userData && userData.folders) {
+            setFolders(userData.folders);
+          } else {
+            // Fall back to localStorage
+            const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+            setFolders(localFolders);
+          }
+        } catch (error) {
+          console.error('Error loading user folders:', error);
+          // Fall back to localStorage
+          const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+          setFolders(localFolders);
+        }
+      } else if (!user && !authLoading) {
+        // Not logged in - load from localStorage only
+        const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
+        setFolders(localFolders);
+      }
+    };
+
+    loadFolders();
+  }, [user, authLoading]);
+
   const colors = [
     { name: 'blue', color: 'bg-blue-500', label: 'X' },
     { name: 'red', color: 'bg-red-500', label: 'Z' },
     { name: 'green', color: 'bg-green-500', label: 'Y' },
-    { name: 'yellow', color: 'bg-yellow-500', label: 'H' },
+    { name: 'yellow', color: 'bg-yellow-500', label: 'C' },
     { name: 'qb', color: 'bg-black', label: 'QB' },
   ];
 
@@ -382,6 +432,124 @@ export default function CommunityPlays() {
     );
   };
 
+  const handleRemixPlay = (play: SavedPlay) => {
+    // Store the play data in localStorage for the builder page to load
+    localStorage.setItem('editingPlay', JSON.stringify(play));
+    // Navigate to the builder page
+    router.push('/builder');
+    setMenuOpenForPlay(null);
+  };
+
+  const handleAddToFolder = (play: SavedPlay) => {
+    setPlayToAddToFolder(play);
+    setShowAddToFolderModal(true);
+    setMenuOpenForPlay(null);
+  };
+
+  const addPlayToFolder = async (play: SavedPlay, folderId: string | null) => {
+    if (!user) {
+      // If not logged in, redirect to login
+      router.push('/login');
+      return;
+    }
+
+    // Create a copy of the play with a new ID
+    const newPlay: SavedPlay = {
+      ...play,
+      id: Date.now().toString(),
+      folderId: folderId || undefined,
+      createdAt: new Date().toISOString(),
+      sharedToCommunity: false // This is now the user's copy
+    };
+
+    try {
+      // Load existing user data
+      const existingData = await loadUserData(user.uid);
+      const existingPlays = existingData?.savedPlays || [];
+      
+      // Add the new play
+      const updatedPlays = [...existingPlays, newPlay];
+      
+      // Update localStorage
+      localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
+      
+      // Save to Firebase
+      const userData: UserData = {
+        savedPlays: updatedPlays,
+        folders: folders,
+        updatedAt: new Date().toISOString()
+      };
+      
+      await saveUserData(user.uid, userData);
+      
+      setShowAddToFolderModal(false);
+      setPlayToAddToFolder(null);
+    } catch (error) {
+      console.error('Error adding play to folder:', error);
+      setError('Failed to add play to folder. Please try again.');
+    }
+  };
+
+  const createNewFolder = async () => {
+    if (!newFolderName.trim()) return;
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    
+    const newFolder: Folder = {
+      id: Date.now().toString(),
+      name: newFolderName.trim(),
+      createdAt: new Date().toISOString(),
+      parentFolderId: null
+    };
+    
+    const updatedFolders = [...folders, newFolder];
+    setFolders(updatedFolders);
+    localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
+    setNewFolderName('');
+    
+    // Sync to Firebase
+    try {
+      const existingData = await loadUserData(user.uid);
+      const userData: UserData = {
+        savedPlays: existingData?.savedPlays || [],
+        folders: updatedFolders,
+        updatedAt: new Date().toISOString()
+      };
+      await saveUserData(user.uid, userData);
+    } catch (error) {
+      console.error('Error syncing folder creation to Firebase:', error);
+    }
+  };
+
+  const handleSharePlay = async (play: SavedPlay) => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    try {
+      // Create a shareable link for this individual play
+      // For now, we'll create a temporary folder with just this play
+      const tempFolderId = `temp_${Date.now()}`;
+      const playCopy = { ...play, id: play.id, folderId: tempFolderId };
+      
+      // Create shareable link (this function already returns the full URL with correct domain)
+      const shareUrl = await createShareableLink(tempFolderId, play.name, [playCopy]);
+      
+      setShareUrl(shareUrl);
+      setShowShareModal(true);
+      setMenuOpenForPlay(null);
+      
+      // Copy to clipboard automatically
+      navigator.clipboard.writeText(shareUrl);
+    } catch (error) {
+      console.error('Error sharing play:', error);
+      setError('Failed to create share link. Please try again.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
@@ -416,36 +584,48 @@ export default function CommunityPlays() {
           >
             My Plays
           </Link>
-          <Link 
-            href="/playbooks" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/playbooks' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Playbooks
-          </Link>
-          <Link 
-            href="/community-plays" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/community-plays' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Community Plays
-          </Link>
-          <Link 
-            href="/coaching-resources" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/coaching-resources' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Coaching Resources
-          </Link>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('playbooks')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Playbooks
+            </button>
+            {showTooltip === 'playbooks' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('community-plays')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Community Plays
+            </button>
+            {showTooltip === 'community-plays' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => handleComingSoon('coaching-resources')}
+              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+            >
+              Coaching Resources
+            </button>
+            {showTooltip === 'coaching-resources' && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                Coming Soon!
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+              </div>
+            )}
+          </div>
           {!user ? (
             <Link
               href="/login"
@@ -465,59 +645,282 @@ export default function CommunityPlays() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Community Plays</h1>
-          <p className="text-gray-600">
-            Browse plays shared by the community. These plays are publicly available for everyone to view and use.
-          </p>
-        </div>
-
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-gray-600">Loading community plays...</div>
+      <main className="max-w-7xl mx-auto px-8 py-8 flex gap-8">
+        {/* Left Content - Plays Grid */}
+        <div className="flex-1">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Community Plays</h1>
+            <p className="text-gray-600">
+              Browse plays shared by the community. These plays are publicly available for everyone to view and use.
+            </p>
           </div>
-        )}
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
-          </div>
-        )}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-gray-600">Loading community plays...</div>
+            </div>
+          )}
 
-        {!loading && !error && communityPlays.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600 text-lg">No community plays yet.</p>
-            <p className="text-gray-500 mt-2">Be the first to share a play with the community!</p>
-          </div>
-        )}
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+              {error}
+            </div>
+          )}
 
-        {!loading && !error && communityPlays.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {communityPlays.map((play) => (
-              <Link
-                key={play.id}
-                href={`/builder?play=${encodeURIComponent(JSON.stringify(play))}`}
-                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer"
-              >
-                <div className="h-48 bg-gray-100 flex items-center justify-center">
-                  {renderPlayPreview(play)}
-                </div>
-                <div className="p-4">
-                  <h3 className="font-semibold text-gray-900 mb-1 truncate">{play.name}</h3>
-                  {play.playNotes && (
-                    <p className="text-sm text-gray-600 line-clamp-2 mb-2">{play.playNotes}</p>
-                  )}
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>{play.players.length} players</span>
-                    <span>{play.routes.length} routes</span>
+          {!loading && !error && communityPlays.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-gray-600 text-lg">No community plays yet.</p>
+              <p className="text-gray-500 mt-2">Be the first to share a play with the community!</p>
+            </div>
+          )}
+
+          {!loading && !error && communityPlays.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {communityPlays.map((play) => (
+                <div
+                  key={play.id}
+                  className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden relative group"
+                >
+                  <div className="h-48 bg-gray-100 flex items-center justify-center relative">
+                    {renderPlayPreview(play)}
+                    {/* Three-dot menu button */}
+                    <div className="absolute top-2 right-2 z-10">
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
+                        }}
+                        className="p-1.5 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors"
+                      >
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                        </svg>
+                      </button>
+                      {/* Menu dropdown */}
+                      {menuOpenForPlay === play.id && (
+                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleRemixPlay(play);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Remix Play
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleAddToFolder(play);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                            Add to Folder
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleSharePlay(play);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                            </svg>
+                            Share Play
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-semibold text-gray-900 mb-1 truncate">{play.name}</h3>
+                    {play.playNotes && (
+                      <p className="text-sm text-gray-600 line-clamp-2 mb-2">{play.playNotes}</p>
+                    )}
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>{play.players.length} players</span>
+                      <span>{play.routes.length} routes</span>
+                    </div>
                   </div>
                 </div>
-              </Link>
-            ))}
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right Sidebar - Filters */}
+        <div className="w-64 flex-shrink-0">
+          <div className="bg-white rounded-lg shadow-md p-6 sticky top-8">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Filters</h2>
+            <div className="space-y-2">
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Spread Formation
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Bunch Formation
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Run Play
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Pass Play
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Double QB
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Short Pass
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Long Pass
+              </button>
+              <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                Trick Play
+              </button>
+            </div>
           </div>
-        )}
+        </div>
       </main>
+
+      {/* Add to Folder Modal */}
+      {showAddToFolderModal && playToAddToFolder && (
+        <div 
+          className="fixed inset-0 bg-white/30 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowAddToFolderModal(false);
+            setPlayToAddToFolder(null);
+            setNewFolderName('');
+          }}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4 border border-gray-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-2xl font-bold text-gray-900 mb-6 tracking-tight">
+              Add Play to Folder
+            </h3>
+            
+            <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+              <button
+                onClick={() => {
+                  addPlayToFolder(playToAddToFolder, null);
+                }}
+                className="w-full px-4 py-2 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="text-sm font-medium text-gray-900">None (All Plays)</div>
+              </button>
+              
+              {folders.map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => {
+                    addPlayToFolder(playToAddToFolder, folder.id);
+                  }}
+                  className="w-full px-4 py-2 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <div className="text-sm font-medium text-gray-900">{folder.name}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* Create New Folder */}
+            <div className="border-t border-gray-200 pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Create New Folder
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      createNewFolder();
+                      if (newFolderName.trim()) {
+                        const newFolder = folders[folders.length - 1];
+                        if (newFolder) {
+                          addPlayToFolder(playToAddToFolder, newFolder.id);
+                        }
+                      }
+                    }
+                  }}
+                  placeholder="Folder name"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 text-sm text-gray-900 placeholder:text-gray-500"
+                />
+                <button
+                  onClick={() => {
+                    createNewFolder();
+                    if (newFolderName.trim()) {
+                      const newFolder = folders[folders.length - 1];
+                      if (newFolder) {
+                        addPlayToFolder(playToAddToFolder, newFolder.id);
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div 
+          className="fixed inset-0 bg-white/30 flex items-center justify-center z-50"
+          onClick={() => {
+            setShowShareModal(false);
+            setShareUrl('');
+          }}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4 border border-gray-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-2xl font-bold text-gray-900 mb-4 tracking-tight">
+              Share Play
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Share link copied to clipboard! You can share this link with others.
+            </p>
+            <div className="mb-4">
+              <input
+                type="text"
+                value={shareUrl}
+                readOnly
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-900"
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+              />
+            </div>
+            <button
+              onClick={() => {
+                setShowShareModal(false);
+                setShareUrl('');
+              }}
+              className="w-full px-4 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

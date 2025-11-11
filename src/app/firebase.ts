@@ -198,14 +198,14 @@ export async function createShareableLink(folderId: string, folderName: string, 
     
     console.log('Successfully saved to Firestore');
     
-    // Use custom domain if provided, otherwise use current origin
+    // Use custom domain - default to www.flagplays.com
     // Only access window on client side
     let baseUrl: string;
     if (typeof window !== 'undefined') {
-      baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || window.location.origin;
+      baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || 'https://www.flagplays.com';
     } else {
       // Server-side fallback
-      baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || 'https://your-project.vercel.app';
+      baseUrl = process.env.NEXT_PUBLIC_SHARE_DOMAIN || 'https://www.flagplays.com';
     }
     
     // Ensure baseUrl has protocol
