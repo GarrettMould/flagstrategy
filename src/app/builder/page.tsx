@@ -325,24 +325,24 @@ export default function Home() {
     
     // Perform the undo using functional update to get latest history
     setHistory(prevHistory => {
-      const currentIndex = historyIndexRef.current;
-      if (currentIndex > 0) {
-        const newIndex = currentIndex - 1;
-        const state = prevHistory[newIndex];
-        if (state) {
+    const currentIndex = historyIndexRef.current;
+    if (currentIndex > 0) {
+      const newIndex = currentIndex - 1;
+          const state = prevHistory[newIndex];
+          if (state) {
           // Update all states
-          setPlayers([...state.players]);
-          setRoutes([...state.routes]);
-          setTextBoxes([...state.textBoxes]);
-          setCircles([...(state.circles || [])]);
+            setPlayers([...state.players]);
+            setRoutes([...state.routes]);
+            setTextBoxes([...state.textBoxes]);
+            setCircles([...(state.circles || [])]);
           setFootballs([...(state.footballs || [])]);
-          setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
+            setPlayerRouteAssociations(new Map(state.playerRouteAssociations));
           setHistoryIndex(newIndex);
-          historyIndexRef.current = newIndex;
+            historyIndexRef.current = newIndex;
         }
-      }
-      return prevHistory; // Return unchanged history
-    });
+          }
+        return prevHistory; // Return unchanged history
+        });
   };
 
   const redo = () => {
@@ -1026,23 +1026,23 @@ export default function Home() {
     let positionX: number;
     if (isMobile) {
       // Mobile positioning
-      switch (color) {
-        case 'blue':
+    switch (color) {
+      case 'blue':
           positionX = fieldWidth * 0.15; // Left side
-          break;
-        case 'yellow':
+        break;
+      case 'yellow':
           positionX = fieldWidth * 0.35; // Left middle
-          break;
-        case 'green':
+        break;
+      case 'green':
           positionX = fieldWidth * 0.65; // Right middle
-          break;
-        case 'red':
+        break;
+      case 'red':
           positionX = fieldWidth * 0.85; // Right side
           break;
         case 'qb':
           positionX = fieldWidth * 0.5; // Center
-          break;
-        default:
+        break;
+      default:
           positionX = fieldWidth * 0.5;
       }
     } else {
@@ -1050,7 +1050,7 @@ export default function Home() {
       switch (color) {
         case 'blue':
           positionX = fieldWidth * 0.259;
-          break;
+        break;
         case 'red':
           positionX = fieldWidth * 0.798;
           break;
@@ -1124,29 +1124,29 @@ export default function Home() {
       
       if (isMobile) {
         // Mobile positioning
-        switch (colorOption.name) {
-          case 'blue':
+      switch (colorOption.name) {
+        case 'blue':
             positionX = fieldWidth * 0.15; // Left side
             y = bottomY;
-            break;
-          case 'yellow':
+          break;
+        case 'yellow':
             positionX = fieldWidth * 0.35; // Left middle
             y = bottomY;
-            break;
-          case 'green':
+          break;
+        case 'green':
             positionX = fieldWidth * 0.65; // Right middle
             y = bottomY;
-            break;
-          case 'red':
+          break;
+        case 'red':
             positionX = fieldWidth * 0.85; // Right side
             y = bottomY;
-            break;
-          case 'qb':
-            positionX = fieldWidth * 0.5; // Center
-            y = qbY;
-            break;
-          default:
-            positionX = fieldWidth * 0.5;
+          break;
+        case 'qb':
+          positionX = fieldWidth * 0.5; // Center
+          y = qbY;
+          break;
+        default:
+          positionX = fieldWidth * 0.5;
             y = bottomY;
         }
       } else {
@@ -1632,10 +1632,10 @@ export default function Home() {
       ...route,
       points: route.points.map((point) => {
         // Calculate relative position from player's center
-        return {
+          return {
           x: point.x - player.x,
           y: point.y - player.y
-        };
+          };
       }),
       playerColor
     };
@@ -1683,10 +1683,10 @@ export default function Home() {
     // Position the route starting at the default position
     const routePoints = customRoute.points.map((point) => {
       // All points are relative to the player's center position
-      return {
-        x: startX + point.x,
-        y: startY + point.y
-      };
+        return {
+          x: startX + point.x,
+          y: startY + point.y
+        };
     });
     
     // Create new route with translated points
@@ -3665,7 +3665,7 @@ export default function Home() {
         )}
       </header>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden md:overflow-auto">
       {/* Left Sidebar - Folder List */}
       <div className="hidden md:flex w-1/4 bg-white border-r border-gray-200 flex-col overflow-y-auto flex-shrink-0">
         <div className="p-4">
@@ -3824,9 +3824,9 @@ export default function Home() {
       <div className="bg-gray-50 flex flex-col md:border-r border-gray-200 flex-1 min-w-0 overflow-hidden">
         {/* Toolbar - Centered over Canvas */}
         <div className="bg-white border-b border-gray-200 flex-shrink-0">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-center gap-3 md:gap-6 py-3 px-4">
-            {/* Animation Section */}
-            <div className="flex items-center gap-3">
+          <div className="flex flex-row md:flex-row md:items-center md:justify-center gap-2 md:gap-6 py-2 md:py-3 px-2 md:px-4 overflow-x-auto">
+            {/* Animation Section - Desktop Only */}
+            <div className="hidden md:flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Animation:</span>
               <button
                 disabled={players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0}
@@ -3835,7 +3835,7 @@ export default function Home() {
                     ? 'bg-red-500 text-white hover:bg-red-600' 
                     : (players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0)
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                    : 'bg-yellow-500 text-white hover:bg-yellow-600'
                 }`}
                 onClick={isAnimating ? stopAnimation : startAnimation}
                 title={isAnimating ? "Stop Animation" : (players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0) ? "Add elements to canvas first" : "Play Animation"}
@@ -3878,13 +3878,9 @@ export default function Home() {
               </>
             )}
             
-            {/* Divider */}
-            <div className="hidden md:block h-10 w-px bg-gray-300"></div>
-            <div className="md:hidden w-full h-px bg-gray-300"></div>
-          
             {/* Tools Section */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Tools:</span>
+            <div className="flex items-center gap-2">
+              <span className="hidden md:block text-sm font-medium text-gray-700">Tools:</span>
               <div className="flex space-x-2">
                 <button
                   className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
@@ -3918,13 +3914,12 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Divider */}
+            {/* Divider - Desktop Only */}
             <div className="hidden md:block h-10 w-px bg-gray-300"></div>
-            <div className="md:hidden w-full h-px bg-gray-300"></div>
           
             {/* Play Options Section */}
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Play Options:</span>
+            <div className="flex items-center gap-2">
+              <span className="hidden md:block text-sm font-medium text-gray-700">Play Options:</span>
               <div className="flex space-x-2">
                 <button
                   disabled={players.length === 0 && routes.length === 0 && textBoxes.length === 0 && circles.length === 0 && footballs.length === 0}
@@ -3994,10 +3989,10 @@ export default function Home() {
         </div>
         
         {/* Canvas Container - left-aligned field with border */}
-        <div className="bg-gray-50 relative overflow-auto h-[800px] md:h-auto md:flex-1 md:min-h-0">
+        <div className="bg-gray-50 relative md:overflow-auto h-[calc(100vh-200px)] md:h-auto md:flex-1 md:min-h-0 overflow-hidden">
         <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full">
           {/* Canvas Area */}
-          <div className="bg-white relative overflow-hidden w-full h-[800px] md:h-full md:flex-1" data-field-container style={{ position: 'relative' }}>
+          <div className="bg-white relative overflow-hidden w-full h-full md:flex-1" data-field-container style={{ position: 'relative' }}>
         {/* Save Notification */}
         {showSaveNotification && (
           <div className="absolute top-4 left-6 z-20 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-opacity duration-300 opacity-100">
@@ -4790,16 +4785,16 @@ export default function Home() {
               }}
             >
               <div className="relative">
-                <img
-                  src="/svgs/american-football.svg"
-                  alt="Football"
-                  width={football.size}
-                  height={football.size}
-                  className={isSelected ? 'ring-4 ring-blue-300' : ''}
-                  style={{
-                    objectFit: 'contain'
-                  }}
-                />
+              <img
+                src="/svgs/american-football.svg"
+                alt="Football"
+                width={football.size}
+                height={football.size}
+                className={isSelected ? 'ring-4 ring-blue-300' : ''}
+                style={{
+                  objectFit: 'contain'
+                }}
+              />
                 {/* Delete button for selected footballs */}
                 {isSelected && (
                   <button
@@ -4835,9 +4830,41 @@ export default function Home() {
           </div>
 
           {/* Bottom Toolbar: Player Icons (left) and Route Tools (right) */}
-          <div className="bg-white border-t border-gray-200 flex flex-row flex-shrink-0 px-6 py-4">
-            {/* Left Side: Player Icons in 2 rows */}
-            <div className="flex-1 flex flex-col justify-center items-center gap-1.5">
+          <div className="bg-white border-t border-gray-200 flex flex-col md:flex-row flex-shrink-0 px-6 py-4">
+            {/* Mobile: Player Icons in one row */}
+            <div className="md:hidden flex justify-between items-center w-full mb-3">
+                {colors.map((colorOption) => (
+                <div
+                  key={colorOption.name}
+                  className={`w-10 h-10 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0 border-0`}
+                  onClick={() => {
+                    setSelectedColor(colorOption.name);
+                    addPlayerToCanvas(colorOption.name);
+                  }}
+                >
+                  {colorOption.label && (
+                    <span className="text-white text-xs font-bold">
+                      {colorOption.label}
+                    </span>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={addAllPlayersToCanvas}
+                disabled={players.length > 0}
+                className={`w-10 h-10 rounded flex items-center justify-center text-xs font-medium transition-transform border-0 ${
+                  players.length > 0
+                    ? 'bg-gray-50 text-gray-400 cursor-not-allowed opacity-50'
+                    : 'bg-blue-500 hover:bg-blue-600 cursor-pointer text-white hover:scale-105'
+                }`}
+                title={players.length > 0 ? "Clear canvas first to add all positions" : "Add All Positions"}
+              >
+                <span className="text-[8px] leading-tight">Add All</span>
+              </button>
+            </div>
+
+            {/* Desktop: Left Side: Player Icons in 2 rows */}
+            <div className="hidden md:flex flex-1 flex-col justify-center items-center gap-1.5">
               <div className="flex justify-between items-center w-full px-8">
                 {colors.slice(0, Math.ceil(colors.length / 2)).map((colorOption) => (
                   <div
@@ -4885,11 +4912,111 @@ export default function Home() {
                 >
                   <span className="text-[10px] leading-tight">Add All</span>
                 </button>
-              </div>
+      </div>
+      </div>
+
+            {/* Mobile: Route Tools in one row */}
+            <div className="md:hidden flex justify-between items-center w-full">
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
+                  selectedRouteStyle === 'solid' && selectedLineBreakType === 'rigid'
+                    ? 'bg-gray-50'
+                    : ''
+                }`}
+                onClick={() => {
+                  setSelectedRouteStyle('solid');
+                  setSelectedLineBreakType('rigid');
+                }}
+                title="Solid Line - Sharp Turns"
+              >
+                <svg className="w-8 h-8" viewBox="0 0 50 50" fill="none">
+                  {renderRouteButtonIcon(routeButtonIcons['solid-rigid'])}
+                </svg>
+              </button>
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
+                  selectedRouteStyle === 'solid' && selectedLineBreakType === 'smooth'
+                    ? 'bg-gray-50'
+                    : ''
+                }`}
+                onClick={() => {
+                  setSelectedRouteStyle('solid');
+                  setSelectedLineBreakType('smooth');
+                }}
+                title="Solid Line - Curved Turns"
+              >
+                <svg className="w-8 h-8" viewBox="0 0 50 50" fill="none">
+                  {renderRouteButtonIcon(routeButtonIcons['solid-smooth'])}
+                </svg>
+              </button>
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
+                  selectedRouteStyle === 'dashed' && selectedLineBreakType === 'rigid'
+                    ? 'bg-gray-50'
+                    : ''
+                }`}
+                onClick={() => {
+                  setSelectedRouteStyle('dashed');
+                  setSelectedLineBreakType('rigid');
+                }}
+                title="Dashed Line - Sharp Turns"
+              >
+                <svg className="w-8 h-8" viewBox="0 0 50 50" fill="none">
+                  {renderRouteButtonIcon(routeButtonIcons['dashed-rigid'])}
+                </svg>
+              </button>
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
+                  selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth'
+                    ? 'bg-gray-50'
+                    : ''
+                }`}
+                onClick={() => {
+                  setSelectedRouteStyle('dashed');
+                  setSelectedLineBreakType('smooth');
+                }}
+                title="Dashed Line - Curved Turns"
+              >
+                <svg className="w-8 h-8" viewBox="0 0 50 50" fill="none">
+                  {renderRouteButtonIcon(routeButtonIcons['dashed-smooth'])}
+                </svg>
+              </button>
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
+                  selectedRouteStyle === 'dashed' && selectedLineBreakType === 'none'
+                    ? 'bg-gray-50'
+                    : ''
+                }`}
+                onClick={() => {
+                  setSelectedRouteStyle('dashed');
+                  setSelectedLineBreakType('none');
+                }}
+                title="Dashed Line - Straight, No Arrow (Pre-play Motion)"
+              >
+                <svg className="w-8 h-8" viewBox="0 0 50 50" fill="none">
+                  <path d="M10 25 L40 25" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
+                </svg>
+              </button>
+              <button
+                className={`w-10 h-10 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
+                  selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth-none'
+                    ? 'bg-gray-50'
+                    : ''
+                }`}
+                onClick={() => {
+                  setSelectedRouteStyle('dashed');
+                  setSelectedLineBreakType('smooth-none');
+                }}
+                title="Dashed Line - Smooth Curves, No Arrow"
+              >
+                <svg className="w-8 h-8" viewBox="0 0 50 50" fill="none">
+                  <path d="M10 35 L20 35 Q25 35 25 30 Q25 25 30 20" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
+                </svg>
+              </button>
             </div>
 
-            {/* Right Side: Route Tools (1/3 width) */}
-            <div className="w-1/3 border-l border-gray-200 pl-6">
+            {/* Desktop: Right Side: Route Tools (1/3 width) */}
+            <div className="hidden md:flex w-1/3 border-l border-gray-200 pl-6">
               <div className="flex flex-col gap-1">
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
@@ -4993,21 +5120,6 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </div>
-      
-      {/* Play Notes Section - Mobile Only (Below Canvas) */}
-      <div className="md:hidden bg-white border-t border-gray-200 p-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Play Notes
-        </label>
-        <textarea
-          value={playNotes}
-          onChange={(e) => setPlayNotes(e.target.value)}
-          placeholder="QB fakes handoff to Y..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm text-gray-900 placeholder:text-gray-500"
-          rows={4}
-        />
-      </div>
       </div>
 
       {/* Right Sidebar - Quick Adds Only */}

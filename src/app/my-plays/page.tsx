@@ -155,6 +155,7 @@ export default function MyPlays() {
   const [newFolderInput, setNewFolderInput] = useState<string>('');
   const [folderCardMenuOpen, setFolderCardMenuOpen] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState<string | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
 
   const handleComingSoon = (feature: string) => {
     setShowTooltip(feature);
@@ -1386,30 +1387,30 @@ export default function MyPlays() {
               <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
               <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
             </Link>
-          </div>
+        </div>
 
           {/* Navigation Links (no login button) */}
           <div className="flex items-center gap-6 ml-auto">
-            <Link 
-              href="/builder" 
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/builder' 
-                  ? 'text-gray-900' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Play Builder
-            </Link>
-            <Link 
-              href="/my-plays" 
-              className={`text-sm font-medium transition-colors ${
-                pathname === '/my-plays' 
-                  ? 'text-gray-900' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              My Plays
-            </Link>
+          <Link 
+            href="/builder" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/builder' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Play Builder
+          </Link>
+          <Link 
+            href="/my-plays" 
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/my-plays' 
+                ? 'text-gray-900' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            My Plays
+          </Link>
             <div className="relative">
               <button
                 onClick={() => handleComingSoon('playbooks')}
@@ -1626,17 +1627,17 @@ export default function MyPlays() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Navigation */}
-      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+      <header className="relative flex items-center justify-between px-4 md:px-8 py-4 md:py-6 bg-white border-b border-gray-200 flex-shrink-0">
         {/* Site Title */}
         <div className="flex items-center">
           <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
-            <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
+            <span className="text-gray-900 font-extrabold text-xl md:text-2xl tracking-tight">Flag Plays</span>
             <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
           </Link>
         </div>
 
-        {/* Navigation Links and Login/Logout */}
-        <div className="flex items-center gap-6 ml-auto">
+        {/* Desktop Navigation Links and Login/Logout */}
+        <div className="hidden md:flex items-center gap-6 ml-auto">
           <Link 
             href="/builder" 
             className={`text-sm font-medium transition-colors ${
@@ -1716,6 +1717,122 @@ export default function MyPlays() {
             </button>
           )}
         </div>
+
+        {/* Mobile Hamburger Menu Button */}
+        <button
+          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          aria-label="Menu"
+        >
+          <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {showMobileMenu ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            )}
+          </svg>
+        </button>
+
+        {/* Mobile Menu Dropdown */}
+        {showMobileMenu && (
+          <div className="absolute top-full left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-50 md:hidden">
+            <div className="flex flex-col py-2">
+              <Link 
+                href="/builder"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/builder' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Play Builder
+              </Link>
+              <Link 
+                href="/my-plays"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/my-plays' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                My Plays
+              </Link>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    handleComingSoon('playbooks');
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+                >
+                  Playbooks
+                </button>
+                {showTooltip === 'playbooks' && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                    Coming Soon!
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    handleComingSoon('community-plays');
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+                >
+                  Community Plays
+                </button>
+                {showTooltip === 'community-plays' && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                    Coming Soon!
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    handleComingSoon('coaching-resources');
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+                >
+                  Coaching Resources
+                </button>
+                {showTooltip === 'coaching-resources' && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                    Coming Soon!
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                  </div>
+                )}
+              </div>
+              <div className="border-t border-gray-200 my-2"></div>
+              {!user ? (
+                <Link
+                  href="/login"
+                  onClick={() => setShowMobileMenu(false)}
+                  className="px-4 py-3 bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors text-sm mx-4 my-2 rounded-lg"
+                >
+                  Log In
+                </Link>
+              ) : (
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setShowMobileMenu(false);
+                  }}
+                  className="px-4 py-3 bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors text-sm mx-4 my-2 rounded-lg"
+                >
+                  Log Out
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </header>
                   
       {/* Breadcrumb Navigation */}
@@ -1785,11 +1902,11 @@ export default function MyPlays() {
                   
       {/* Main Content Area - Sidebar + Grid */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Expand Sidebar Button - Only visible when collapsed */}
+        {/* Expand Sidebar Button - Only visible when collapsed and on desktop */}
         {sidebarCollapsed && (
           <button
             onClick={() => setSidebarCollapsed(false)}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white border-r border-t border-b border-gray-200 rounded-r-lg p-2 shadow-sm hover:bg-gray-50 transition-colors"
+            className="hidden md:block absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white border-r border-t border-b border-gray-200 rounded-r-lg p-2 shadow-sm hover:bg-gray-50 transition-colors"
             title="Expand sidebar"
           >
             <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1798,8 +1915,8 @@ export default function MyPlays() {
           </button>
         )}
 
-        {/* Sidebar */}
-        <div className={`${sidebarCollapsed ? 'w-0' : 'w-64'} bg-white border-r border-gray-200 flex flex-col transition-all duration-200 overflow-hidden`}>
+        {/* Sidebar - Hidden on mobile */}
+        <div className={`hidden md:flex ${sidebarCollapsed ? 'w-0' : 'w-64'} bg-white border-r border-gray-200 flex-col transition-all duration-200 overflow-hidden`}>
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">Navigation</span>
             <button

@@ -15,6 +15,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showTooltip, setShowTooltip] = useState<string | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -91,17 +92,17 @@ function LoginForm() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Navigation */}
-      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-gray-200 flex-shrink-0">
+      <header className="relative flex items-center justify-between px-4 md:px-8 py-4 md:py-6 bg-white border-b border-gray-200 flex-shrink-0">
         {/* Site Title */}
         <div className="flex items-center">
           <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
-            <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
+            <span className="text-gray-900 font-extrabold text-xl md:text-2xl tracking-tight">Flag Plays</span>
             <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
           </Link>
         </div>
 
-        {/* Navigation Links (no login button) */}
-        <div className="flex items-center gap-6 ml-auto">
+        {/* Desktop Navigation Links (no login button) */}
+        <div className="hidden md:flex items-center gap-6 ml-auto">
           <Link 
             href="/builder" 
             className={`text-sm font-medium transition-colors ${
@@ -165,15 +166,111 @@ function LoginForm() {
             )}
           </div>
         </div>
+
+        {/* Mobile Hamburger Menu Button */}
+        <button
+          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          aria-label="Menu"
+        >
+          <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {showMobileMenu ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            )}
+          </svg>
+        </button>
+
+        {/* Mobile Menu Dropdown */}
+        {showMobileMenu && (
+          <div className="absolute top-full left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-50 md:hidden">
+            <div className="flex flex-col py-2">
+              <Link 
+                href="/builder"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/builder' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Play Builder
+              </Link>
+              <Link 
+                href="/my-plays"
+                onClick={() => setShowMobileMenu(false)}
+                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                  pathname === '/my-plays' 
+                    ? 'text-gray-900 bg-gray-50' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                My Plays
+              </Link>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    handleComingSoon('playbooks');
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+                >
+                  Playbooks
+                </button>
+                {showTooltip === 'playbooks' && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                    Coming Soon!
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    handleComingSoon('community-plays');
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+                >
+                  Community Plays
+                </button>
+                {showTooltip === 'community-plays' && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                    Coming Soon!
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    handleComingSoon('coaching-resources');
+                    setShowMobileMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
+                >
+                  Coaching Resources
+                </button>
+                {showTooltip === 'coaching-resources' && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
+                    Coming Soon!
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Login Form Content */}
       <div className="flex-1 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full space-y-8">
-          <div>
-            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-              {isSignUp ? 'Create your account' : 'Sign in to your account'}
-            </h2>
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            {isSignUp ? 'Create your account' : 'Sign in to your account'}
+          </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             {isSignUp ? (
               <>
@@ -324,8 +421,8 @@ function LoginForm() {
             </Link>
           </div>
         </form>
-        </div>
       </div>
+    </div>
     </div>
   );
 }
