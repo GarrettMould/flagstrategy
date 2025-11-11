@@ -39,6 +39,13 @@ interface Circle {
   color: string;
 }
 
+interface Football {
+  id: string;
+  x: number;
+  y: number;
+  size: number;
+}
+
 interface SavedPlay {
   id: string;
   name: string;
@@ -48,6 +55,7 @@ interface SavedPlay {
   routes: Route[];
   textBoxes?: TextBox[];
   circles?: Circle[];
+  footballs?: Football[];
   createdAt?: string;
   playerRouteAssociations?: [string, string[]][];
   playNotes?: string;
