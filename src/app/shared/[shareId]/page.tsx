@@ -1119,13 +1119,9 @@ export default function SharedFolderPage() {
                 }
                 setShowLoginModal(false);
                 setLoginError('');
-                // Wait a moment for auth context to update, then reload folders
-                setTimeout(async () => {
-                  const { user: updatedUser } = await import('../../contexts/AuthContext');
-                  // Actually, we need to get the user from the auth context hook
-                  // The useEffect for loading folders will handle this automatically
-                }, 500);
-              } catch (error: any) {
+                // The useEffect for loading folders will automatically reload when user changes
+              } catch (err: unknown) {
+                const error = err as { code?: string; message?: string };
                 if (error.code === 'auth/email-already-in-use') {
                   setLoginError('This email is already registered. Please sign in instead.');
                 } else if (error.code === 'auth/weak-password') {
@@ -1229,7 +1225,8 @@ export default function SharedFolderPage() {
                       await signInWithGoogle();
                       setShowLoginModal(false);
                       // The useEffect for loading folders will automatically reload when user changes
-                    } catch (error: any) {
+                    } catch (err: unknown) {
+                      const error = err as { code?: string; message?: string };
                       if (error.code === 'auth/popup-closed-by-user') {
                         setLoginError('Sign-in popup was closed. Please try again.');
                       } else if (error.code === 'auth/popup-blocked') {
