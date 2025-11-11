@@ -4826,6 +4826,7 @@ export default function Home() {
             );
           })}
 
+        </div>
           </div>
 
           {/* Bottom Toolbar: Player Icons (left) and Route Tools (right) */}
@@ -5718,7 +5719,6 @@ export default function Home() {
             ))}
           </div>
         </div>
-      </div>
       </div>
 
       {/* Color Picker */}
