@@ -4826,7 +4826,7 @@ export default function Home() {
             );
           })}
 
-        </div>
+          </div>
 
           {/* Bottom Toolbar: Player Icons (left) and Route Tools (right) */}
           <div className="bg-white border-t border-gray-200 flex flex-col md:flex-row flex-shrink-0 px-6 py-4">
@@ -5114,9 +5114,9 @@ export default function Home() {
                       <path d="M10 35 L20 35 Q25 35 25 30 Q25 25 30 20" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
                     </svg>
                   </button>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       </div>
       </div>
@@ -5720,6 +5720,7 @@ export default function Home() {
           </div>
         </div>
       </div>
+      </div>
 
       {/* Color Picker */}
       {showColorPicker && colorPickerPosition && (
@@ -6208,6 +6209,7 @@ export default function Home() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
