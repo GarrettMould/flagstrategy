@@ -3877,7 +3877,7 @@ export default function Home() {
                 </div>
               </>
             )}
-            
+          
             {/* Tools Section */}
             <div className="flex items-center gap-2">
               <span className="hidden md:block text-sm font-medium text-gray-700">Tools:</span>
@@ -5115,11 +5115,11 @@ export default function Home() {
                       <path d="M10 35 L20 35 Q25 35 25 30 Q25 25 30 20" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
                     </svg>
                   </button>
-                </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Right Sidebar - Quick Adds Only */}
