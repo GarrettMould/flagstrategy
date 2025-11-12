@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { saveUserData, loadUserData, UserData, SavedPlay, signUp, logIn, signInWithGoogle, saveToCommunityPlays } from '../firebase';
+import Header from '../components/Header';
 
 interface Player {
   id: string;
@@ -21,7 +22,7 @@ interface Route {
   style: 'solid' | 'dashed';
   lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
   color: string;
-  showArrow?: boolean; // Whether to show the arrow (can be toggled)
+  endpointType?: 'arrow' | 'dot' | 'none'; // Endpoint style: arrow (triangle), dot, or none
 }
 
 interface TextBox {
@@ -160,6 +161,7 @@ export default function Home() {
   const [playerRouteAssociations, setPlayerRouteAssociations] = useState<Map<string, string[]>>(new Map());
   const [defensiveFormation, setDefensiveFormation] = useState<'zone' | null>(null);
   const [defensivePlayers, setDefensivePlayers] = useState<Player[]>([]);
+  const [canvasBackground, setCanvasBackground] = useState<'field' | 'goaline' | 'blank'>('field');
   
   // Coverage pattern interface
   interface CoveragePattern {
@@ -219,6 +221,13 @@ export default function Home() {
   
   const [selectedCoverage, setSelectedCoverage] = useState<CoveragePattern | null>(null);
   const [originalPlayerPosition, setOriginalPlayerPosition] = useState<{ x: number; y: number } | null>(null);
+  const [originalSelectedPositions, setOriginalSelectedPositions] = useState<{
+    players: Map<string, { x: number; y: number }>;
+    routes: Map<string, { x: number; y: number }[]>;
+    textBoxes: Map<string, { x: number; y: number }>;
+    circles: Map<string, { x: number; y: number }>;
+    footballs: Map<string, { x: number; y: number }>;
+  } | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const [originalPlayerRoutePositions, setOriginalPlayerRoutePositions] = useState<Map<string, { x: number; y: number }[]>>(new Map());
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
@@ -249,13 +258,6 @@ export default function Home() {
   const [showDownloadDropdown, setShowDownloadDropdown] = useState<boolean>(false);
   const [openFolderMenu, setOpenFolderMenu] = useState<string | null>(null);
   const [showDeleteFolderConfirm, setShowDeleteFolderConfirm] = useState<string | null>(null);
-  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
-  const [showTooltip, setShowTooltip] = useState<string | null>(null);
-
-  const handleComingSoon = (feature: string) => {
-    setShowTooltip(feature);
-    setTimeout(() => setShowTooltip(null), 2000);
-  };
   const saveHistoryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const historyIndexRef = useRef<number>(-1);
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -546,6 +548,20 @@ export default function Home() {
     const editingPlayData = localStorage.getItem('editingPlay');
     if (editingPlayData) {
       const play = JSON.parse(editingPlayData);
+      // Migrate old showArrow boolean to endpointType
+      if (play.routes) {
+        play.routes = play.routes.map((route: any) => {
+          if (route.showArrow !== undefined && route.endpointType === undefined) {
+            // Migrate: showArrow true -> 'arrow', showArrow false -> 'none'
+            route.endpointType = route.showArrow ? 'arrow' : 'none';
+            delete route.showArrow;
+          } else if (route.endpointType === undefined) {
+            // Default to arrow if route type supports it
+            route.endpointType = route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none';
+          }
+          return route;
+        });
+      }
       const loadedPlayers = play.players || [];
       const loadedRoutes = play.routes || [];
       
@@ -603,10 +619,7 @@ export default function Home() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      // Close mobile menu if clicking outside
-      if (showMobileMenu && !target.closest('header') && !target.closest('[data-mobile-menu]')) {
-        setShowMobileMenu(false);
-      }
+      // Close mobile menu if clicking outside (Header component manages its own state)
       if (showDownloadDropdown && !target.closest('[data-download-dropdown]')) {
         setShowDownloadDropdown(false);
       }
@@ -615,13 +628,13 @@ export default function Home() {
       }
     };
 
-    if (showDownloadDropdown || openFolderMenu || showMobileMenu) {
+    if (showDownloadDropdown || openFolderMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
-  }, [showDownloadDropdown, openFolderMenu, showMobileMenu]);
+  }, [showDownloadDropdown, openFolderMenu]);
 
   const colors = [
     { name: 'blue', color: 'bg-blue-500', label: 'X' },
@@ -882,7 +895,7 @@ export default function Home() {
         style: selectedRouteStyle,
           lineBreakType: selectedLineBreakType || 'rigid',
         color: 'black',
-        showArrow: selectedLineBreakType !== 'none' && selectedLineBreakType !== 'smooth-none' // Default to showing arrow if route type supports it
+        endpointType: selectedLineBreakType !== 'none' && selectedLineBreakType !== 'smooth-none' ? 'arrow' : 'none' // Default to arrow if route type supports it
       };
       setRoutes([...routes, newRoute]);
       
@@ -914,7 +927,17 @@ export default function Home() {
   const toggleRouteArrow = (routeId: string) => {
     setRoutes(prevRoutes => prevRoutes.map(route => {
       if (route.id === routeId) {
-        return { ...route, showArrow: !route.showArrow };
+        // Cycle through: arrow -> dot -> none -> arrow
+        const currentType = route.endpointType || 'arrow';
+        let nextType: 'arrow' | 'dot' | 'none';
+        if (currentType === 'arrow') {
+          nextType = 'dot';
+        } else if (currentType === 'dot') {
+          nextType = 'none';
+        } else {
+          nextType = 'arrow';
+        }
+        return { ...route, endpointType: nextType };
       }
       return route;
     }));
@@ -937,23 +960,6 @@ export default function Home() {
     
     setTextBoxes([...textBoxes, newTextBox]);
     setEditingTextBox(newTextBox.id);
-    setTimeout(() => saveToHistory(), 0);
-  };
-
-  const addCircleToCanvas = () => {
-    // Calculate middle of field
-    const fieldWidth = window.innerWidth * 0.75 * 0.6;
-    const fieldHeight = fieldWidth / 0.92; // Height based on aspect ratio (slightly taller than wide)
-    
-    const newCircle: Circle = {
-      id: Date.now().toString(),
-      x: fieldWidth / 2,
-      y: fieldHeight / 2,
-      radius: 8, // Small black circle
-      color: 'black'
-    };
-    
-    setCircles([...circles, newCircle]);
     setTimeout(() => saveToHistory(), 0);
   };
 
@@ -1483,7 +1489,7 @@ export default function Home() {
       style: routeData.style,
       lineBreakType: routeData.lineBreakType,
       color: routeData.color,
-      showArrow: routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none'
+      endpointType: routeData.lineBreakType !== 'none' && routeData.lineBreakType !== 'smooth-none' ? 'arrow' : 'none'
     };
     
     // Add player and route
@@ -1725,6 +1731,52 @@ export default function Home() {
       setDraggedTextBox(textBoxId);
       setDraggedElement({ type: 'textbox', id: textBoxId });
       
+      // Check if multi-select (textbox must be selected and there must be other items selected)
+      const isMultiSelect = selectedItems.textBoxes.includes(textBoxId) && 
+                           (selectedItems.textBoxes.length > 1 || 
+                           selectedItems.players.length > 0 || 
+                           selectedItems.routes.length > 0 || 
+                           selectedItems.circles.length > 0 || 
+                           selectedItems.footballs.length > 0);
+      
+      if (isMultiSelect) {
+        const textBox = textBoxes.find(tb => tb.id === textBoxId);
+        if (textBox) {
+          const originalPositions = {
+            players: new Map<string, { x: number; y: number }>(),
+            routes: new Map<string, { x: number; y: number }[]>(),
+            textBoxes: new Map<string, { x: number; y: number }>(),
+            circles: new Map<string, { x: number; y: number }>(),
+            footballs: new Map<string, { x: number; y: number }>()
+          };
+          
+          // Store all selected items
+          [...selectedItems.players].forEach(id => {
+            const p = players.find(pl => pl.id === id) || defensivePlayers.find(pl => pl.id === id);
+            if (p) originalPositions.players.set(id, { x: p.x, y: p.y });
+          });
+          selectedItems.routes.forEach(id => {
+            const r = routes.find(rt => rt.id === id);
+            if (r) originalPositions.routes.set(id, [...r.points]);
+          });
+          selectedItems.textBoxes.forEach(id => {
+            const tb = textBoxes.find(t => t.id === id);
+            if (tb) originalPositions.textBoxes.set(id, { x: tb.x, y: tb.y });
+          });
+          selectedItems.circles.forEach(id => {
+            const c = circles.find(cir => cir.id === id);
+            if (c) originalPositions.circles.set(id, { x: c.x, y: c.y });
+          });
+          selectedItems.footballs.forEach(id => {
+            const f = footballs.find(fb => fb.id === id);
+            if (f) originalPositions.footballs.set(id, { x: f.x, y: f.y });
+          });
+          
+          setOriginalSelectedPositions(originalPositions);
+          setOriginalPlayerPosition({ x: textBox.x, y: textBox.y });
+        }
+      }
+      
       const coords = getEventCoordinates(e, e.currentTarget);
       setDragOffset({
         x: coords.x - 24,
@@ -1893,6 +1945,52 @@ export default function Home() {
       setDraggedCircle(circleId);
       setDraggedElement({ type: 'circle', id: circleId });
       
+      // Check if multi-select (circle must be selected and there must be other items selected)
+      const isMultiSelect = selectedItems.circles.includes(circleId) && 
+                           (selectedItems.circles.length > 1 || 
+                           selectedItems.players.length > 0 || 
+                           selectedItems.routes.length > 0 || 
+                           selectedItems.textBoxes.length > 0 || 
+                           selectedItems.footballs.length > 0);
+      
+      if (isMultiSelect) {
+        const circle = circles.find(c => c.id === circleId);
+        if (circle) {
+          const originalPositions = {
+            players: new Map<string, { x: number; y: number }>(),
+            routes: new Map<string, { x: number; y: number }[]>(),
+            textBoxes: new Map<string, { x: number; y: number }>(),
+            circles: new Map<string, { x: number; y: number }>(),
+            footballs: new Map<string, { x: number; y: number }>()
+          };
+          
+          // Store all selected items
+          [...selectedItems.players].forEach(id => {
+            const p = players.find(pl => pl.id === id) || defensivePlayers.find(pl => pl.id === id);
+            if (p) originalPositions.players.set(id, { x: p.x, y: p.y });
+          });
+          selectedItems.routes.forEach(id => {
+            const r = routes.find(rt => rt.id === id);
+            if (r) originalPositions.routes.set(id, [...r.points]);
+          });
+          selectedItems.textBoxes.forEach(id => {
+            const tb = textBoxes.find(t => t.id === id);
+            if (tb) originalPositions.textBoxes.set(id, { x: tb.x, y: tb.y });
+          });
+          selectedItems.circles.forEach(id => {
+            const c = circles.find(cir => cir.id === id);
+            if (c) originalPositions.circles.set(id, { x: c.x, y: c.y });
+          });
+          selectedItems.footballs.forEach(id => {
+            const f = footballs.find(fb => fb.id === id);
+            if (f) originalPositions.footballs.set(id, { x: f.x, y: f.y });
+          });
+          
+          setOriginalSelectedPositions(originalPositions);
+          setOriginalPlayerPosition({ x: circle.x, y: circle.y });
+        }
+      }
+      
       const coords = getEventCoordinates(e, e.currentTarget);
       setDragOffset({
         x: coords.x - 8,
@@ -1912,6 +2010,52 @@ export default function Home() {
         e.preventDefault();
       }
       setHasDragged(false); // Reset drag flag
+      
+      // Check if multi-select (football must be selected and there must be other items selected)
+      const isMultiSelect = selectedItems.footballs.includes(footballId) && 
+                           (selectedItems.footballs.length > 1 || 
+                           selectedItems.players.length > 0 || 
+                           selectedItems.routes.length > 0 || 
+                           selectedItems.textBoxes.length > 0 || 
+                           selectedItems.circles.length > 0);
+      
+      if (isMultiSelect) {
+        const football = footballs.find(f => f.id === footballId);
+        if (football) {
+          const originalPositions = {
+            players: new Map<string, { x: number; y: number }>(),
+            routes: new Map<string, { x: number; y: number }[]>(),
+            textBoxes: new Map<string, { x: number; y: number }>(),
+            circles: new Map<string, { x: number; y: number }>(),
+            footballs: new Map<string, { x: number; y: number }>()
+          };
+          
+          // Store all selected items
+          [...selectedItems.players].forEach(id => {
+            const p = players.find(pl => pl.id === id) || defensivePlayers.find(pl => pl.id === id);
+            if (p) originalPositions.players.set(id, { x: p.x, y: p.y });
+          });
+          selectedItems.routes.forEach(id => {
+            const r = routes.find(rt => rt.id === id);
+            if (r) originalPositions.routes.set(id, [...r.points]);
+          });
+          selectedItems.textBoxes.forEach(id => {
+            const tb = textBoxes.find(t => t.id === id);
+            if (tb) originalPositions.textBoxes.set(id, { x: tb.x, y: tb.y });
+          });
+          selectedItems.circles.forEach(id => {
+            const c = circles.find(cir => cir.id === id);
+            if (c) originalPositions.circles.set(id, { x: c.x, y: c.y });
+          });
+          selectedItems.footballs.forEach(id => {
+            const f = footballs.find(fb => fb.id === id);
+            if (f) originalPositions.footballs.set(id, { x: f.x, y: f.y });
+          });
+          
+          setOriginalSelectedPositions(originalPositions);
+          setOriginalPlayerPosition({ x: football.x, y: football.y });
+        }
+      }
       setDraggedFootball(footballId);
       setDraggedElement({ type: 'football', id: footballId });
       
@@ -1976,6 +2120,14 @@ export default function Home() {
       setDraggedPlayer(playerId);
       setDraggedElement({ type: 'player', id: playerId });
       
+      // Check if this player is part of a multi-select (player must be selected and there must be other items selected)
+      const isMultiSelect = selectedItems.players.includes(playerId) && 
+                           (selectedItems.players.length > 1 || 
+                           selectedItems.routes.length > 0 || 
+                           selectedItems.textBoxes.length > 0 || 
+                           selectedItems.circles.length > 0 || 
+                           selectedItems.footballs.length > 0);
+      
       // Store original position for route movement calculation
       // Check both players and defensivePlayers arrays
       const player = players.find(p => p.id === playerId) || defensivePlayers.find(p => p.id === playerId);
@@ -1992,6 +2144,59 @@ export default function Home() {
           }
         });
         setOriginalPlayerRoutePositions(routePositions);
+        
+        // If multi-select, store original positions of all selected items
+        if (isMultiSelect) {
+          const originalPositions = {
+            players: new Map<string, { x: number; y: number }>(),
+            routes: new Map<string, { x: number; y: number }[]>(),
+            textBoxes: new Map<string, { x: number; y: number }>(),
+            circles: new Map<string, { x: number; y: number }>(),
+            footballs: new Map<string, { x: number; y: number }>()
+          };
+          
+          // Store all selected players
+          [...selectedItems.players].forEach(id => {
+            const p = players.find(pl => pl.id === id) || defensivePlayers.find(pl => pl.id === id);
+            if (p) {
+              originalPositions.players.set(id, { x: p.x, y: p.y });
+            }
+          });
+          
+          // Store all selected routes
+          selectedItems.routes.forEach(id => {
+            const r = routes.find(rt => rt.id === id);
+            if (r) {
+              originalPositions.routes.set(id, [...r.points]);
+            }
+          });
+          
+          // Store all selected text boxes
+          selectedItems.textBoxes.forEach(id => {
+            const tb = textBoxes.find(t => t.id === id);
+            if (tb) {
+              originalPositions.textBoxes.set(id, { x: tb.x, y: tb.y });
+            }
+          });
+          
+          // Store all selected circles
+          selectedItems.circles.forEach(id => {
+            const c = circles.find(cir => cir.id === id);
+            if (c) {
+              originalPositions.circles.set(id, { x: c.x, y: c.y });
+            }
+          });
+          
+          // Store all selected footballs
+          selectedItems.footballs.forEach(id => {
+            const f = footballs.find(fb => fb.id === id);
+            if (f) {
+              originalPositions.footballs.set(id, { x: f.x, y: f.y });
+            }
+          });
+          
+          setOriginalSelectedPositions(originalPositions);
+        }
         
         // Reset lastPoint to prevent interference with route drawing
         setLastPoint(null);
@@ -2020,52 +2225,145 @@ export default function Home() {
       const x = coords.x - dragOffset.x;
       const y = coords.y - dragOffset.y;
       
-      // Check if it's a defensive player or offensive player
-      const isDefensive = defensivePlayers.find(p => p.id === draggedPlayer);
-      if (isDefensive) {
-        // Update defensive player position
-        setDefensivePlayers(prevPlayers => 
-          prevPlayers.map(player => 
-            player.id === draggedPlayer 
-              ? { ...player, x, y }
-              : player
-          )
-        );
-      } else {
-        // Update offensive player position
+      // Check if multi-select drag
+      const isMultiSelect = originalSelectedPositions !== null;
+      
+      if (isMultiSelect && originalPlayerPosition) {
+        // Calculate delta from the dragged player's original position
+        const deltaX = x - originalPlayerPosition.x;
+        const deltaY = y - originalPlayerPosition.y;
+        
+        // Move all selected players
         setPlayers(prevPlayers => 
-          prevPlayers.map(player => 
-            player.id === draggedPlayer 
-              ? { ...player, x, y }
-              : player
-          )
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) {
+                return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+              }
+            }
+            return player;
+          })
         );
         
-        // Move associated routes with the player using stored associations
-        if (draggedPlayer && originalPlayerPosition) {
-          const associatedRouteIds = playerRouteAssociations.get(draggedPlayer) || [];
-          if (associatedRouteIds.length > 0) {
-            const deltaX = x - originalPlayerPosition.x;
-            const deltaY = y - originalPlayerPosition.y;
-            
-            setRoutes(prevRoutes => 
-              prevRoutes.map(route => {
-                if (associatedRouteIds.includes(route.id)) {
-                  // This route belongs to this player, move it using original positions
-                  const originalPoints = originalPlayerRoutePositions.get(route.id);
-                  if (originalPoints) {
-                    return {
-                      ...route,
-                      points: originalPoints.map(point => ({
-                        x: point.x + deltaX,
-                        y: point.y + deltaY
-                      }))
-                    };
+        setDefensivePlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) {
+                return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+              }
+            }
+            return player;
+          })
+        );
+        
+        // Move all selected routes
+        setRoutes(prevRoutes => 
+          prevRoutes.map(route => {
+            if (originalSelectedPositions.routes.has(route.id)) {
+              const originalPoints = originalSelectedPositions.routes.get(route.id);
+              if (originalPoints) {
+                return {
+                  ...route,
+                  points: originalPoints.map(point => ({
+                    x: point.x + deltaX,
+                    y: point.y + deltaY
+                  }))
+                };
+              }
+            }
+            return route;
+          })
+        );
+        
+        // Move all selected text boxes
+        setTextBoxes(prevTextBoxes => 
+          prevTextBoxes.map(textBox => {
+            if (originalSelectedPositions.textBoxes.has(textBox.id)) {
+              const originalPos = originalSelectedPositions.textBoxes.get(textBox.id);
+              if (originalPos) {
+                return { ...textBox, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+              }
+            }
+            return textBox;
+          })
+        );
+        
+        // Move all selected circles
+        setCircles(prevCircles => 
+          prevCircles.map(circle => {
+            if (originalSelectedPositions.circles.has(circle.id)) {
+              const originalPos = originalSelectedPositions.circles.get(circle.id);
+              if (originalPos) {
+                return { ...circle, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+              }
+            }
+            return circle;
+          })
+        );
+        
+        // Move all selected footballs
+        setFootballs(prevFootballs => 
+          prevFootballs.map(football => {
+            if (originalSelectedPositions.footballs.has(football.id)) {
+              const originalPos = originalSelectedPositions.footballs.get(football.id);
+              if (originalPos) {
+                return { ...football, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+              }
+            }
+            return football;
+          })
+        );
+      } else {
+        // Single item drag (original behavior)
+        // Check if it's a defensive player or offensive player
+        const isDefensive = defensivePlayers.find(p => p.id === draggedPlayer);
+        if (isDefensive) {
+          // Update defensive player position
+          setDefensivePlayers(prevPlayers => 
+            prevPlayers.map(player => 
+              player.id === draggedPlayer 
+                ? { ...player, x, y }
+                : player
+            )
+          );
+        } else {
+          // Update offensive player position
+          setPlayers(prevPlayers => 
+            prevPlayers.map(player => 
+              player.id === draggedPlayer 
+                ? { ...player, x, y }
+                : player
+            )
+          );
+          
+          // Move associated routes with the player using stored associations
+          if (draggedPlayer && originalPlayerPosition) {
+            const associatedRouteIds = playerRouteAssociations.get(draggedPlayer) || [];
+            if (associatedRouteIds.length > 0) {
+              const deltaX = x - originalPlayerPosition.x;
+              const deltaY = y - originalPlayerPosition.y;
+              
+              setRoutes(prevRoutes => 
+                prevRoutes.map(route => {
+                  if (associatedRouteIds.includes(route.id)) {
+                    // This route belongs to this player, move it using original positions
+                    const originalPoints = originalPlayerRoutePositions.get(route.id);
+                    if (originalPoints) {
+                      return {
+                        ...route,
+                        points: originalPoints.map(point => ({
+                          x: point.x + deltaX,
+                          y: point.y + deltaY
+                        }))
+                      };
+                    }
                   }
-                }
-                return route;
-              })
-            );
+                  return route;
+                })
+              );
+            }
           }
         }
       }
@@ -2074,38 +2372,236 @@ export default function Home() {
       const x = coords.x - dragOffset.x;
       const y = coords.y - dragOffset.y;
       
-      setTextBoxes(prevTextBoxes => 
-        prevTextBoxes.map(textBox => 
-          textBox.id === draggedTextBox 
-            ? { ...textBox, x, y }
-            : textBox
-        )
-      );
+      // Check if multi-select
+      const isMultiSelect = originalSelectedPositions !== null;
+      
+      if (isMultiSelect && originalPlayerPosition) {
+        const deltaX = x - originalPlayerPosition.x;
+        const deltaY = y - originalPlayerPosition.y;
+        
+        // Move all selected items
+        setPlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return player;
+          })
+        );
+        setDefensivePlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return player;
+          })
+        );
+        setRoutes(prevRoutes => 
+          prevRoutes.map(route => {
+            if (originalSelectedPositions.routes.has(route.id)) {
+              const originalPoints = originalSelectedPositions.routes.get(route.id);
+              if (originalPoints) {
+                return { ...route, points: originalPoints.map(point => ({ x: point.x + deltaX, y: point.y + deltaY })) };
+              }
+            }
+            return route;
+          })
+        );
+        setTextBoxes(prevTextBoxes => 
+          prevTextBoxes.map(textBox => {
+            if (originalSelectedPositions.textBoxes.has(textBox.id)) {
+              const originalPos = originalSelectedPositions.textBoxes.get(textBox.id);
+              if (originalPos) return { ...textBox, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return textBox;
+          })
+        );
+        setCircles(prevCircles => 
+          prevCircles.map(circle => {
+            if (originalSelectedPositions.circles.has(circle.id)) {
+              const originalPos = originalSelectedPositions.circles.get(circle.id);
+              if (originalPos) return { ...circle, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return circle;
+          })
+        );
+        setFootballs(prevFootballs => 
+          prevFootballs.map(football => {
+            if (originalSelectedPositions.footballs.has(football.id)) {
+              const originalPos = originalSelectedPositions.footballs.get(football.id);
+              if (originalPos) return { ...football, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return football;
+          })
+        );
+      } else {
+        setTextBoxes(prevTextBoxes => 
+          prevTextBoxes.map(textBox => 
+            textBox.id === draggedTextBox 
+              ? { ...textBox, x, y }
+              : textBox
+          )
+        );
+      }
     } else if (draggedCircle) {
       const coords = getEventCoordinates(e, e.currentTarget);
       const x = coords.x - dragOffset.x;
       const y = coords.y - dragOffset.y;
       
-      setCircles(prevCircles => 
-        prevCircles.map(circle => 
-          circle.id === draggedCircle 
-            ? { ...circle, x, y }
-            : circle
-        )
-      );
+      // Check if multi-select
+      const isMultiSelect = originalSelectedPositions !== null;
+      
+      if (isMultiSelect && originalPlayerPosition) {
+        const deltaX = x - originalPlayerPosition.x;
+        const deltaY = y - originalPlayerPosition.y;
+        
+        // Move all selected items (same logic as textbox)
+        setPlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return player;
+          })
+        );
+        setDefensivePlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return player;
+          })
+        );
+        setRoutes(prevRoutes => 
+          prevRoutes.map(route => {
+            if (originalSelectedPositions.routes.has(route.id)) {
+              const originalPoints = originalSelectedPositions.routes.get(route.id);
+              if (originalPoints) {
+                return { ...route, points: originalPoints.map(point => ({ x: point.x + deltaX, y: point.y + deltaY })) };
+              }
+            }
+            return route;
+          })
+        );
+        setTextBoxes(prevTextBoxes => 
+          prevTextBoxes.map(textBox => {
+            if (originalSelectedPositions.textBoxes.has(textBox.id)) {
+              const originalPos = originalSelectedPositions.textBoxes.get(textBox.id);
+              if (originalPos) return { ...textBox, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return textBox;
+          })
+        );
+        setCircles(prevCircles => 
+          prevCircles.map(circle => {
+            if (originalSelectedPositions.circles.has(circle.id)) {
+              const originalPos = originalSelectedPositions.circles.get(circle.id);
+              if (originalPos) return { ...circle, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return circle;
+          })
+        );
+        setFootballs(prevFootballs => 
+          prevFootballs.map(football => {
+            if (originalSelectedPositions.footballs.has(football.id)) {
+              const originalPos = originalSelectedPositions.footballs.get(football.id);
+              if (originalPos) return { ...football, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return football;
+          })
+        );
+      } else {
+        setCircles(prevCircles => 
+          prevCircles.map(circle => 
+            circle.id === draggedCircle 
+              ? { ...circle, x, y }
+              : circle
+          )
+        );
+      }
     } else if (draggedFootball) {
       setHasDragged(true); // Mark that we're dragging
       const coords = getEventCoordinates(e, e.currentTarget);
       const x = coords.x - dragOffset.x;
       const y = coords.y - dragOffset.y;
       
-      setFootballs(prevFootballs => 
-        prevFootballs.map(football => 
-          football.id === draggedFootball 
-            ? { ...football, x, y }
-            : football
-        )
-      );
+      // Check if multi-select
+      const isMultiSelect = originalSelectedPositions !== null;
+      
+      if (isMultiSelect && originalPlayerPosition) {
+        const deltaX = x - originalPlayerPosition.x;
+        const deltaY = y - originalPlayerPosition.y;
+        
+        // Move all selected items (same logic as textbox)
+        setPlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return player;
+          })
+        );
+        setDefensivePlayers(prevPlayers => 
+          prevPlayers.map(player => {
+            if (originalSelectedPositions.players.has(player.id)) {
+              const originalPos = originalSelectedPositions.players.get(player.id);
+              if (originalPos) return { ...player, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return player;
+          })
+        );
+        setRoutes(prevRoutes => 
+          prevRoutes.map(route => {
+            if (originalSelectedPositions.routes.has(route.id)) {
+              const originalPoints = originalSelectedPositions.routes.get(route.id);
+              if (originalPoints) {
+                return { ...route, points: originalPoints.map(point => ({ x: point.x + deltaX, y: point.y + deltaY })) };
+              }
+            }
+            return route;
+          })
+        );
+        setTextBoxes(prevTextBoxes => 
+          prevTextBoxes.map(textBox => {
+            if (originalSelectedPositions.textBoxes.has(textBox.id)) {
+              const originalPos = originalSelectedPositions.textBoxes.get(textBox.id);
+              if (originalPos) return { ...textBox, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return textBox;
+          })
+        );
+        setCircles(prevCircles => 
+          prevCircles.map(circle => {
+            if (originalSelectedPositions.circles.has(circle.id)) {
+              const originalPos = originalSelectedPositions.circles.get(circle.id);
+              if (originalPos) return { ...circle, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return circle;
+          })
+        );
+        setFootballs(prevFootballs => 
+          prevFootballs.map(football => {
+            if (originalSelectedPositions.footballs.has(football.id)) {
+              const originalPos = originalSelectedPositions.footballs.get(football.id);
+              if (originalPos) return { ...football, x: originalPos.x + deltaX, y: originalPos.y + deltaY };
+            }
+            return football;
+          })
+        );
+      } else {
+        setFootballs(prevFootballs => 
+          prevFootballs.map(football => 
+            football.id === draggedFootball 
+              ? { ...football, x, y }
+              : football
+          )
+        );
+      }
     } else {
       // Handle route drawing mouse move only if not dragging
     handleCanvasMouseMove(e);
@@ -2126,6 +2622,7 @@ export default function Home() {
     setDraggedElement(null);
     setOriginalPlayerPosition(null);
     setOriginalPlayerRoutePositions(new Map());
+    setOriginalSelectedPositions(null);
     setSelectedRoute(null);
     
     // Save state after moving if a player, text box, circle, or football was dragged (use setTimeout to ensure state is updated)
@@ -2809,37 +3306,79 @@ export default function Home() {
     ctx.fillStyle = '#ffffff'; // white
     ctx.fillRect(0, 0, baseSize, baseSize);
 
-    // Draw field lines
+    // Define line width for use throughout
     const lineWidth = baseSize * 0.002; // Scale line width for better visibility
-    ctx.strokeStyle = '#9ca3af'; // gray-400 for lines on white background
-    ctx.lineWidth = lineWidth;
 
-    // Draw yard lines
-    for (let i = 1; i < 10; i++) {
-      const y = (baseSize * i) / 10;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(baseSize, y);
-      ctx.stroke();
-    }
+    // Draw field lines based on canvas background
+    if (canvasBackground !== 'blank') {
+      ctx.strokeStyle = '#9ca3af'; // gray-400 for lines on white background
+      ctx.lineWidth = lineWidth;
 
-      // Draw hash marks
-      const hashWidth = baseSize * 0.01;
-      const hashHeight = baseSize * 0.02;
-      for (let i = 0; i < 10; i++) {
-        const y = (baseSize * i) / 10;
-        const leftX = baseSize * 0.1;
-        const rightX = baseSize * 0.9;
-        
+      if (canvasBackground === 'field') {
+        // Draw yard lines
+        for (let i = 1; i < 10; i++) {
+          const y = (baseSize * i) / 10;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(baseSize, y);
+          ctx.stroke();
+        }
+
+        // Draw hash marks
+        const hashWidth = baseSize * 0.01;
+        const hashHeight = baseSize * 0.02;
+        for (let i = 0; i < 10; i++) {
+          const y = (baseSize * i) / 10;
+          const leftX = baseSize * 0.1;
+          const rightX = baseSize * 0.9;
+          
+          ctx.fillStyle = '#9ca3af'; // gray-400
+          ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
+          ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
+        }
+
+        // Draw sidelines
         ctx.fillStyle = '#9ca3af'; // gray-400
-        ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
-        ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
-      }
+        ctx.fillRect(0, 0, baseSize, lineWidth);
+        ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
+      } else if (canvasBackground === 'goaline') {
+        // Blank endzone at top (first 30% - white background, no drawing needed)
+        
+        // Draw goal line at bottom of endzone (30%)
+        const goalLineY = baseSize * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(0, goalLineY);
+        ctx.lineTo(baseSize, goalLineY);
+        ctx.stroke();
+        
+        // Draw yard lines (starting from 40% since 0-30% is blank endzone)
+        for (let i = 4; i < 10; i++) {
+          const y = (baseSize * i) / 10;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(baseSize, y);
+          ctx.stroke();
+        }
 
-      // Draw sidelines
-      ctx.fillStyle = '#9ca3af'; // gray-400
-      ctx.fillRect(0, 0, baseSize, lineWidth);
-      ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
+        // Draw hash marks (starting from 35% since 0-30% is blank endzone)
+        const hashWidth = baseSize * 0.01;
+        const hashHeight = baseSize * 0.02;
+        for (let i = 3.5; i < 10; i += 1) {
+          const y = (baseSize * i) / 10;
+          const leftX = baseSize * 0.1;
+          const rightX = baseSize * 0.9;
+          
+          ctx.fillStyle = '#9ca3af'; // gray-400
+          ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
+          ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
+        }
+
+        // Draw sidelines
+        ctx.fillStyle = '#9ca3af'; // gray-400
+        ctx.fillRect(0, 0, baseSize, lineWidth);
+        ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
+      }
+    }
 
     // Draw players
     // Player icons on canvas are w-12 h-12 (48px = 3rem), so radius is 24px
@@ -2951,9 +3490,12 @@ export default function Home() {
         (route.points[0].y / rect.height) * baseSize
       );
       
-      // Draw route line, but stop slightly before the end if there's an arrow
-      const shouldShowArrow = route.showArrow !== false && route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none';
-      const endIndex = shouldShowArrow ? route.points.length - 1 : route.points.length;
+      // Draw route line, but stop slightly before the end if there's an arrow or dot
+      const endpointType = route.endpointType || (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none');
+      const shouldShowArrow = endpointType === 'arrow';
+      const shouldShowDot = endpointType === 'dot';
+      const shouldShortenLine = shouldShowArrow || shouldShowDot;
+      const endIndex = shouldShortenLine ? route.points.length - 1 : route.points.length;
       
       for (let i = 1; i < endIndex; i++) {
         ctx.lineTo(
@@ -2962,8 +3504,8 @@ export default function Home() {
         );
       }
       
-      // If there's an arrow, draw the last segment but stop short of the actual end point
-      if (shouldShowArrow && route.points.length >= 2) {
+      // If there's an arrow or dot, draw the last segment but stop short of the actual end point
+      if (shouldShortenLine && route.points.length >= 2) {
         const lastPoint = route.points[route.points.length - 1];
         const secondLastPoint = route.points[route.points.length - 2];
         
@@ -3014,6 +3556,30 @@ export default function Home() {
           arrowY - Math.sin(angle + 0.6) * arrowLength * 0.6
         );
         ctx.closePath();
+        ctx.fill();
+      }
+      
+      // Draw dot at the end
+      if (shouldShowDot && route.points.length >= 2) {
+        const lastPoint = route.points[route.points.length - 1];
+        const secondLastPoint = route.points[route.points.length - 2];
+        const angle = Math.atan2(
+          secondLastPoint.y - lastPoint.y,
+          secondLastPoint.x - lastPoint.x
+        );
+        const arrowLength = baseSize * 0.03; // Arrow length
+        const dotLength = baseSize * 0.015; // Dot positioned closer to route end
+        const dotX = (lastPoint.x / rect.width) * baseSize + Math.cos(angle) * dotLength;
+        const dotY = (lastPoint.y / rect.height) * baseSize + Math.sin(angle) * dotLength;
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(
+          dotX,
+          dotY,
+          baseSize * 0.013, // Slightly bigger dot radius
+          0,
+          2 * Math.PI
+        );
         ctx.fill();
       }
     });
@@ -3125,34 +3691,79 @@ export default function Home() {
         ctx.fillStyle = '#ffffff'; // white
         ctx.fillRect(0, 0, size, size);
 
-        // Draw field lines
+        // Define line width for use throughout
         const lineWidth = baseSize * 0.002;
-        ctx.strokeStyle = '#9ca3af';
-        ctx.lineWidth = lineWidth;
-        
-        // Yard lines
-        for (let i = 10; i <= 90; i += 10) {
-          const y = (i / 100) * baseSize;
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(baseSize, y);
-          ctx.stroke();
-        }
 
-        // Hash marks
-        const hashMarkLength = baseSize * 0.03;
-        for (let i = 10; i <= 90; i += 10) {
-          const y = (i / 100) * baseSize;
-          // Left hash marks
-          ctx.beginPath();
-          ctx.moveTo(baseSize * 0.2, y);
-          ctx.lineTo(baseSize * 0.2 + hashMarkLength, y);
-          ctx.stroke();
-          // Right hash marks
-          ctx.beginPath();
-          ctx.moveTo(baseSize * 0.8, y);
-          ctx.lineTo(baseSize * 0.8 - hashMarkLength, y);
-          ctx.stroke();
+        // Draw field lines based on canvas background
+        if (canvasBackground !== 'blank') {
+          ctx.strokeStyle = '#9ca3af';
+          ctx.lineWidth = lineWidth;
+          
+          if (canvasBackground === 'field') {
+            // Yard lines
+            for (let i = 10; i <= 90; i += 10) {
+              const y = (i / 100) * baseSize;
+              ctx.beginPath();
+              ctx.moveTo(0, y);
+              ctx.lineTo(baseSize, y);
+              ctx.stroke();
+            }
+
+            // Hash marks
+            const hashMarkLength = baseSize * 0.03;
+            for (let i = 10; i <= 90; i += 10) {
+              const y = (i / 100) * baseSize;
+              // Left hash marks
+              ctx.beginPath();
+              ctx.moveTo(baseSize * 0.2, y);
+              ctx.lineTo(baseSize * 0.2 + hashMarkLength, y);
+              ctx.stroke();
+              // Right hash marks
+              ctx.beginPath();
+              ctx.moveTo(baseSize * 0.8, y);
+              ctx.lineTo(baseSize * 0.8 - hashMarkLength, y);
+              ctx.stroke();
+            }
+          } else if (canvasBackground === 'goaline') {
+            // Blank endzone at top (first 30% - white background, no drawing needed)
+            
+            // Draw goal line at bottom of endzone (30%)
+            const goalLineY = baseSize * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(0, goalLineY);
+            ctx.lineTo(baseSize, goalLineY);
+            ctx.stroke();
+            
+            // Yard lines (starting from 40% since 0-30% is blank endzone)
+            for (let i = 40; i <= 90; i += 10) {
+              const y = (i / 100) * baseSize;
+              ctx.beginPath();
+              ctx.moveTo(0, y);
+              ctx.lineTo(baseSize, y);
+              ctx.stroke();
+            }
+
+            // Hash marks (starting from 35% since 0-30% is blank endzone)
+            const hashMarkLength = baseSize * 0.03;
+            for (let i = 35; i <= 95; i += 10) {
+              const y = (i / 100) * baseSize;
+              // Left hash marks
+              ctx.beginPath();
+              ctx.moveTo(baseSize * 0.2, y);
+              ctx.lineTo(baseSize * 0.2 + hashMarkLength, y);
+              ctx.stroke();
+              // Right hash marks
+              ctx.beginPath();
+              ctx.moveTo(baseSize * 0.8, y);
+              ctx.lineTo(baseSize * 0.8 - hashMarkLength, y);
+              ctx.stroke();
+            }
+          }
+          
+          // Draw sidelines (for both field and goaline)
+          ctx.fillStyle = '#9ca3af'; // gray-400
+          ctx.fillRect(0, 0, baseSize, lineWidth);
+          ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
         }
 
         // Draw players at animated positions - use same logic as getAnimatedPlayerPosition
@@ -3363,8 +3974,11 @@ export default function Home() {
             (route.points[0].y / rect.height) * baseSize
           );
           
-          const shouldShowArrow = route.showArrow !== false && route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none';
-          const endIndex = shouldShowArrow ? route.points.length - 1 : route.points.length;
+          const endpointType = route.endpointType || (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none');
+          const shouldShowArrow = endpointType === 'arrow';
+          const shouldShowDot = endpointType === 'dot';
+          const shouldShortenLine = shouldShowArrow || shouldShowDot;
+          const endIndex = shouldShortenLine ? route.points.length - 1 : route.points.length;
           
           for (let i = 1; i < endIndex; i++) {
             ctx.lineTo(
@@ -3373,7 +3987,7 @@ export default function Home() {
             );
           }
           
-          if (shouldShowArrow && route.points.length >= 2) {
+          if (shouldShortenLine && route.points.length >= 2) {
             const lastPoint = route.points[route.points.length - 1];
             const secondLastPoint = route.points[route.points.length - 2];
             const dx = lastPoint.x - secondLastPoint.x;
@@ -3413,6 +4027,32 @@ export default function Home() {
                 arrowY - Math.sin(angle + 0.6) * arrowLength
               );
               ctx.closePath();
+              ctx.fill();
+            }
+          }
+          
+          // Draw dots
+          if (shouldShowDot && route.points.length >= 2) {
+            const lastPoint = route.points[route.points.length - 1];
+            const secondLastPoint = route.points[route.points.length - 2];
+            const dx = lastPoint.x - secondLastPoint.x;
+            const dy = lastPoint.y - secondLastPoint.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > 0) {
+              const angle = Math.atan2(dy, dx);
+              const arrowLength = baseSize * 0.02; // Arrow length
+              const dotLength = baseSize * 0.01; // Dot positioned closer to route end
+              const dotX = (lastPoint.x / rect.width) * baseSize + Math.cos(angle) * dotLength;
+              const dotY = (lastPoint.y / rect.height) * baseSize + Math.sin(angle) * dotLength;
+              ctx.fillStyle = 'black';
+              ctx.beginPath();
+              ctx.arc(
+                dotX,
+                dotY,
+                baseSize * 0.012, // Slightly smaller dot radius
+                0,
+                2 * Math.PI
+              );
               ctx.fill();
             }
           }
@@ -3494,214 +4134,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Navigation */}
-      <header className="flex items-center justify-between px-4 md:px-8 py-4 md:py-6 bg-white border-b border-gray-200 relative">
-        {/* Site Title */}
-        <div className="flex items-center">
-          <Link href="/" className="flex flex-col hover:opacity-80 transition-opacity">
-            <span className="text-gray-900 font-extrabold text-2xl tracking-tight">Flag Plays</span>
-            <span className="text-gray-500 text-xs font-normal">by Flag Dojo</span>
-          </Link>
-        </div>
-
-        {/* Desktop Navigation Links and Login/Logout */}
-        <div className="hidden md:flex items-center gap-6 ml-auto">
-          <Link 
-            href="/builder" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/builder' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Play Builder
-          </Link>
-          <Link 
-            href="/my-plays" 
-            className={`text-sm font-medium transition-colors ${
-              pathname === '/my-plays' 
-                ? 'text-gray-900' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            My Plays
-          </Link>
-          <div className="relative">
-            <button
-              onClick={() => handleComingSoon('playbooks')}
-              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
-            >
-              Playbooks
-            </button>
-            {showTooltip === 'playbooks' && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                Coming Soon!
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
-              </div>
-            )}
-          </div>
-          <div className="relative">
-            <button
-              onClick={() => handleComingSoon('community-plays')}
-              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
-            >
-              Community Plays
-            </button>
-            {showTooltip === 'community-plays' && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                Coming Soon!
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
-              </div>
-            )}
-          </div>
-          <div className="relative">
-            <button
-              onClick={() => handleComingSoon('coaching-resources')}
-              className="text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
-            >
-              Coaching Resources
-            </button>
-            {showTooltip === 'coaching-resources' && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                Coming Soon!
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
-              </div>
-            )}
-          </div>
-          <div className="h-6 w-px bg-gray-300"></div>
-          {!user ? (
-            <Link
-              href="/login"
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
-            >
-              Log In
-            </Link>
-          ) : (
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
-            >
-              Log Out
-            </button>
-          )}
-        </div>
-
-        {/* Mobile Hamburger Menu Button */}
-        <button
-          onClick={() => setShowMobileMenu(!showMobileMenu)}
-          className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          aria-label="Menu"
-          data-mobile-menu
-        >
-          <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {showMobileMenu ? (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
-
-        {/* Mobile Menu Dropdown */}
-        {showMobileMenu && (
-          <div className="absolute top-full left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-50 md:hidden" data-mobile-menu>
-            <div className="flex flex-col py-2">
-              <Link 
-                href="/builder"
-                onClick={() => setShowMobileMenu(false)}
-                className={`px-4 py-3 text-sm font-medium transition-colors ${
-                  pathname === '/builder' 
-                    ? 'text-gray-900 bg-gray-50' 
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Play Builder
-              </Link>
-              <Link 
-                href="/my-plays"
-                onClick={() => setShowMobileMenu(false)}
-                className={`px-4 py-3 text-sm font-medium transition-colors ${
-                  pathname === '/my-plays' 
-                    ? 'text-gray-900 bg-gray-50' 
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                My Plays
-              </Link>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    handleComingSoon('playbooks');
-                    setShowMobileMenu(false);
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
-                >
-                  Playbooks
-                </button>
-                {showTooltip === 'playbooks' && (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                    Coming Soon!
-                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
-                  </div>
-                )}
-              </div>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    handleComingSoon('community-plays');
-                    setShowMobileMenu(false);
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
-                >
-                  Community Plays
-                </button>
-                {showTooltip === 'community-plays' && (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                    Coming Soon!
-                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
-                  </div>
-                )}
-              </div>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    handleComingSoon('coaching-resources');
-                    setShowMobileMenu(false);
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-not-allowed transition-colors"
-                >
-                  Coaching Resources
-                </button>
-                {showTooltip === 'coaching-resources' && (
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                    Coming Soon!
-                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45"></div>
-                  </div>
-                )}
-              </div>
-              {!user ? (
-                <Link
-                  href="/login"
-                  onClick={() => setShowMobileMenu(false)}
-                  className="px-4 py-3 bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors text-sm mx-4 my-2 rounded-lg"
-                >
-                  Log In
-                </Link>
-              ) : (
-                <button
-                  onClick={() => {
-                    setShowMobileMenu(false);
-                    handleLogout();
-                  }}
-                  className="px-4 py-3 bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors text-sm mx-4 my-2 rounded-lg text-left"
-                >
-                  Log Out
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </header>
+      <Header />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar - Folder List */}
@@ -3934,15 +4367,6 @@ export default function Home() {
                   </svg>
                 </button>
                 <button
-                  className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black"
-                  onClick={addCircleToCanvas}
-                  title="Add Circle"
-                >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="10" />
-                  </svg>
-                </button>
-                <button
                   className="w-10 h-10 rounded flex items-center justify-center transition-colors text-black hover:bg-gray-100"
                   onClick={addFootballToCanvas}
                   title="Add Football"
@@ -3952,6 +4376,52 @@ export default function Home() {
                     alt="Football" 
                     className="w-5 h-5"
                   />
+                </button>
+              </div>
+            </div>
+
+            {/* Canvas Background Section */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-700">Background:</span>
+              <div className="flex space-x-2">
+                <button
+                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
+                    canvasBackground === 'field'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  onClick={() => setCanvasBackground('field')}
+                  title="Field Canvas"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+                <button
+                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
+                    canvasBackground === 'goaline'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  onClick={() => setCanvasBackground('goaline')}
+                  title="Goaline Canvas"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10h14M5 14h14" />
+                  </svg>
+                </button>
+                <button
+                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
+                    canvasBackground === 'blank'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  onClick={() => setCanvasBackground('blank')}
+                  title="Blank Canvas"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
             </div>
@@ -4144,47 +4614,87 @@ export default function Home() {
           }}
         >
           {/* Football Field Lines */}
-          <div className="absolute inset-0">
-            {/* Yard Lines */}
-            <div className="absolute top-0 left-0 w-full h-full">
-              {/* 10-yard lines */}
-              <div className="absolute top-[10%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[20%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
-              
-              {/* Hash marks */}
-              <div className="absolute top-[5%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[5%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[15%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[15%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[25%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[25%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
-              <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
-              
-              {/* Sidelines */}
-              <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
-              <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+          {canvasBackground !== 'blank' && (
+            <div className="absolute inset-0">
+              {canvasBackground === 'field' ? (
+                /* Regular Field */
+                <div className="absolute top-0 left-0 w-full h-full">
+                  {/* 10-yard lines */}
+                  <div className="absolute top-[10%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[20%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  
+                  {/* Hash marks */}
+                  <div className="absolute top-[5%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[5%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[15%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[15%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[25%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[25%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  
+                  {/* Sidelines */}
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
+                  <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+                </div>
+              ) : (
+                /* Goaline View - Blank endzone at top */
+                <div className="absolute top-0 left-0 w-full h-full">
+                  {/* Blank endzone at top (first 30% of field) - white background */}
+                  
+                  {/* Goal line at bottom of endzone (30%) */}
+                  <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  
+                  {/* 10-yard lines (starting from 40% since 0-30% is blank endzone) */}
+                  <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  
+                  {/* Hash marks (starting from 35% since 0-30% is blank endzone) */}
+                  <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
+                  <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
+                  
+                  {/* Sidelines */}
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
+                  <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
           {/* Routes */}
           {routes.map((route) => {
             const isSelected = selectedItems.routes.includes(route.id);
@@ -4214,8 +4724,14 @@ export default function Home() {
             const arrowLength = 20; // Larger arrow
             const arrowX = lastPoint.x + Math.cos(angle) * arrowLength;
             const arrowY = lastPoint.y + Math.sin(angle) * arrowLength;
+            const dotLength = 10; // Dot positioned closer to route end than arrow
+            const dotX = lastPoint.x + Math.cos(angle) * dotLength;
+            const dotY = lastPoint.y + Math.sin(angle) * dotLength;
             
-            const shouldShowArrow = route.showArrow !== false && route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none';
+            const endpointType = route.endpointType || (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none');
+            const shouldShowArrow = endpointType === 'arrow';
+            const shouldShowDot = endpointType === 'dot';
+            const shouldShortenLine = shouldShowArrow || shouldShowDot;
             
             return (
             <React.Fragment key={route.id}>
@@ -4227,8 +4743,8 @@ export default function Home() {
                 {(route.lineBreakType === 'smooth' || route.lineBreakType === 'smooth-none') ? (
                   <path
                     d={(() => {
-                      // If there's an arrow, stop the line slightly before the last point
-                      if (shouldShowArrow && route.points.length >= 2) {
+                      // If there's an arrow or dot, stop the line slightly before the last point
+                      if (shouldShortenLine && route.points.length >= 2) {
                         const lastPoint = route.points[route.points.length - 1];
                         const secondLastPoint = route.points[route.points.length - 2];
                         
@@ -4262,8 +4778,8 @@ export default function Home() {
                 ) : (
               <polyline
                 points={(() => {
-                  // If there's an arrow, stop the line slightly before the last point
-                  if (shouldShowArrow && route.points.length >= 2) {
+                  // If there's an arrow or dot, stop the line slightly before the last point
+                  if (shouldShortenLine && route.points.length >= 2) {
                     const lastPoint = route.points[route.points.length - 1];
                     const secondLastPoint = route.points[route.points.length - 2];
                     
@@ -4302,9 +4818,18 @@ export default function Home() {
                     fill={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
                   />
                 )}
+                {/* Dot at the end - only for routes that should show dots */}
+                {shouldShowDot && (
+                  <circle
+                    cx={dotX}
+                    cy={dotY}
+                    r="8"
+                    fill={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
+                  />
+                )}
             </svg>
-            {/* Invisible clickable tooltip at the end of the route */}
-            {(route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none') && (
+            {/* Invisible clickable tooltip at the end of the route - now works for all routes */}
+            {route.points.length >= 2 && (
               <div
                 onClick={(e) => {
                   e.stopPropagation();
@@ -4320,7 +4845,7 @@ export default function Home() {
                   borderRadius: '50%',
                   backgroundColor: 'transparent'
                 }}
-                title={`Click to ${route.showArrow !== false ? 'hide' : 'show'} arrow`}
+                title={`Click to cycle endpoint: ${endpointType === 'arrow' ? 'arrow → dot' : endpointType === 'dot' ? 'dot → none' : 'none → arrow'}`}
               />
             )}
             {/* Delete button for selected routes - mobile only */}
