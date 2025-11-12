@@ -158,6 +158,7 @@ export default function SharedFolderPage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(true);
+  const [selectedPlay, setSelectedPlay] = useState<SavedPlay | null>(null);
 
   useEffect(() => {
     // Only run on client side
@@ -370,7 +371,7 @@ export default function SharedFolderPage() {
   };
 
   // Render play preview with proper scaling
-  const renderPlayPreview = (play: SavedPlay) => {
+  const renderPlayPreview = (play: SavedPlay, containerWidth: number = 300, containerHeight: number = 300) => {
     // Find bounding box of all elements
     const allPoints: { x: number; y: number }[] = [];
     
@@ -419,9 +420,7 @@ export default function SharedFolderPage() {
     const paddedWidth = contentWidth + padding * 2;
     const paddedHeight = contentHeight + padding * 2;
     
-    // Container dimensions
-    const containerWidth = 300;
-    const containerHeight = 300;
+    // Container dimensions (passed as parameters, default to 300x300 for grid view)
     
     // Calculate scale to fit with padding
     const scaleX = (containerWidth - padding * 2) / paddedWidth;
@@ -775,7 +774,8 @@ export default function SharedFolderPage() {
             {plays.map((play) => (
               <div
                 key={play.id}
-                className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200"
+                className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer"
+                onClick={() => setSelectedPlay(play)}
               >
                 {/* Play Preview */}
                 <div className="w-full bg-white relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
@@ -789,7 +789,7 @@ export default function SharedFolderPage() {
                         e.stopPropagation();
                         setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
                       }}
-                      className="p-1.5 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors"
+                      className="p-1.5 bg-white rounded-full shadow-md hover:bg-gray-50 transition-colors z-20"
                     >
                       <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -844,6 +844,57 @@ export default function SharedFolderPage() {
           </div>
         )}
       </div>
+
+      {/* Play Detail Modal */}
+      {selectedPlay && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedPlay(null)}
+        >
+          <div 
+            className="bg-white rounded-lg w-full h-full max-w-7xl max-h-[95vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <div className="absolute top-4 right-4 z-10">
+              <button
+                onClick={() => setSelectedPlay(null)}
+                className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-50 transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Play Preview - Large */}
+            <div className="flex-1 flex items-center justify-center bg-gray-50 p-8 overflow-auto">
+              <div 
+                className="w-full h-full max-w-5xl max-h-full bg-white rounded-lg shadow-lg relative" 
+                style={{ aspectRatio: '4/3', minHeight: '600px' }}
+              >
+                {renderPlayPreview(selectedPlay, 1200, 900)}
+              </div>
+            </div>
+
+            {/* Play Info and Notes - Bottom */}
+            <div className="bg-white border-t border-gray-200 p-6 overflow-y-auto max-h-[30vh]">
+              <div className="max-w-5xl mx-auto">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">{selectedPlay.name}</h2>
+                {selectedPlay.playbook && (
+                  <p className="text-sm text-gray-600 mb-4">{selectedPlay.playbook}</p>
+                )}
+                {selectedPlay.playNotes && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">Notes</h3>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedPlay.playNotes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Import Confirmation Modal */}
       {showImportModal && (
