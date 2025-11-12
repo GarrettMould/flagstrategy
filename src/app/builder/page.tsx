@@ -4368,36 +4368,10 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Canvas Background Section */}
-            <div className="flex items-center gap-3">
+            {/* Canvas Background Section - Commented out for now */}
+            {/* <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Background:</span>
               <div className="flex space-x-2">
-                <button
-                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
-                    canvasBackground === 'field'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                  onClick={() => setCanvasBackground('field')}
-                  title="Field Canvas"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </button>
-                <button
-                  className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
-                    canvasBackground === 'goaline'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                  onClick={() => setCanvasBackground('goaline')}
-                  title="Goaline Canvas"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10h14M5 14h14" />
-                  </svg>
-                </button>
                 <button
                   className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
                     canvasBackground === 'blank'
@@ -4412,7 +4386,7 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
-            </div>
+            </div> */}
 
             {/* Divider */}
             <div className="hidden md:block h-10 w-px bg-gray-300"></div>
