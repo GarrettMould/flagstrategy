@@ -733,8 +733,8 @@ export default function SharedFolderPage() {
       )}
 
       {/* Shared Folder Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
+      <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex-shrink-0">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-1">
               {sharedFolder.folderName}
@@ -744,7 +744,7 @@ export default function SharedFolderPage() {
             </p>
           </div>
           {!user && (
-            <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-lg px-6 py-4">
+            <div className="w-full md:w-auto flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-lg px-6 py-4">
               <div className="flex-1">
                 <h3 className="text-base font-semibold text-gray-900 mb-1">Create your own plays!</h3>
                 <p className="text-sm text-gray-600 mb-3">
@@ -752,7 +752,7 @@ export default function SharedFolderPage() {
                 </p>
                 <Link
                   href="/login?signup=true"
-                  className="inline-block px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm"
+                  className="inline-block w-full md:w-auto px-4 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors text-sm text-center"
                 >
                   Get Started Free
                 </Link>
