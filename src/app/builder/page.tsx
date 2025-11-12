@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { saveUserData, loadUserData, UserData, SavedPlay, signUp, logIn, signInWithGoogle, saveToCommunityPlays } from '../firebase';
 import Header from '../components/Header';

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { signUp, logIn, signInWithGoogle } from '../firebase';
 import Link from 'next/link';
 import Header from '../components/Header';

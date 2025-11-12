@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams, useRouter, usePathname } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { getSharedFolder, SharedFolder, loadUserData, saveUserData, UserData, signUp, logIn, signInWithGoogle } from '../../firebase';
