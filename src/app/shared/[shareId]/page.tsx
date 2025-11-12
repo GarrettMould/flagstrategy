@@ -158,14 +158,6 @@ export default function SharedFolderPage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(true);
-  const [showTooltip, setShowTooltip] = useState<string | null>(null);
-  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
-  const pathname = usePathname();
-
-  const handleComingSoon = (feature: string) => {
-    setShowTooltip(feature);
-    setTimeout(() => setShowTooltip(null), 2000);
-  };
 
   useEffect(() => {
     // Only run on client side

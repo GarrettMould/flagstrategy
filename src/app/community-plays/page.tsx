@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { loadCommunityPlays, SavedPlay, loadUserData, saveUserData, UserData, createShareableLink } from '../firebase';
 import Header from '../components/Header';
@@ -16,7 +15,6 @@ interface Folder {
 
 export default function CommunityPlays() {
   const { user, loading: authLoading } = useAuth();
-  const pathname = usePathname();
   const router = useRouter();
   const [communityPlays, setCommunityPlays] = useState<SavedPlay[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -28,13 +26,6 @@ export default function CommunityPlays() {
   const [newFolderName, setNewFolderName] = useState<string>('');
   const [shareUrl, setShareUrl] = useState<string>('');
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
-  const [showTooltip, setShowTooltip] = useState<string | null>(null);
-  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
-
-  const handleComingSoon = (feature: string) => {
-    setShowTooltip(feature);
-    setTimeout(() => setShowTooltip(null), 2000);
-  };
 
   useEffect(() => {
     const loadPlays = async () => {

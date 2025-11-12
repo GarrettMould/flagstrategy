@@ -550,7 +550,7 @@ export default function Home() {
       const play = JSON.parse(editingPlayData);
       // Migrate old showArrow boolean to endpointType
       if (play.routes) {
-        play.routes = play.routes.map((route: any) => {
+        play.routes = play.routes.map((route: Route & { showArrow?: boolean }) => {
           if (route.showArrow !== undefined && route.endpointType === undefined) {
             // Migrate: showArrow true -> 'arrow', showArrow false -> 'none'
             route.endpointType = route.showArrow ? 'arrow' : 'none';
@@ -4084,8 +4084,6 @@ export default function Home() {
     });
   };
 
-  const pathname = usePathname();
-
   // Detect mobile device
   useEffect(() => {
     const checkMobile = () => {
@@ -4097,16 +4095,6 @@ export default function Home() {
     
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-
-  const handleLogout = async () => {
-    try {
-      if (logout) {
-        await logout();
-      }
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
-  };
 
   return (
     <div className="h-screen flex flex-col">

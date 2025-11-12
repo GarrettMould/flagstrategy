@@ -155,13 +155,6 @@ export default function MyPlays() {
   const [showCreateFolderModal, setShowCreateFolderModal] = useState<boolean>(false);
   const [newFolderInput, setNewFolderInput] = useState<string>('');
   const [folderCardMenuOpen, setFolderCardMenuOpen] = useState<string | null>(null);
-  const [showTooltip, setShowTooltip] = useState<string | null>(null);
-  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
-
-  const handleComingSoon = (feature: string) => {
-    setShowTooltip(feature);
-    setTimeout(() => setShowTooltip(null), 2000);
-  };
   const [sidebarFolderMenuOpen, setSidebarFolderMenuOpen] = useState<string | null>(null);
   const [showDeleteFolderModal, setShowDeleteFolderModal] = useState<boolean>(false);
   const [folderToDelete, setFolderToDelete] = useState<string | null>(null);

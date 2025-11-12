@@ -15,15 +15,7 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showTooltip, setShowTooltip] = useState<string | null>(null);
-  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   const router = useRouter();
-  const pathname = usePathname();
-
-  const handleComingSoon = (feature: string) => {
-    setShowTooltip(feature);
-    setTimeout(() => setShowTooltip(null), 2000);
-  };
 
   // Check for signup query parameter on mount
   useEffect(() => {
