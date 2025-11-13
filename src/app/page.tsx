@@ -4124,12 +4124,6 @@ export default function Home() {
 
       <Header />
 
-      {/* SEO Headings */}
-      <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">Build and Share Flag Football Plays Instantly</h1>
-        <h2 className="text-base md:text-lg text-gray-600">Your all-in-one platform for flag football play design, team strategy, and coaching resources.</h2>
-      </div>
-
       <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar - Folder List */}
       <div className="hidden md:flex w-1/4 bg-white border-r border-gray-200 flex-col overflow-y-auto flex-shrink-0">
