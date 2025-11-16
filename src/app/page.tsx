@@ -869,8 +869,8 @@ export default function Home() {
     // Only handle route drawing if route is being drawn
     if (selectedRouteStyle && isDrawingRoute && currentRoute.length > 0) {
       const coords = getEventCoordinates(e, e.currentTarget);
-      let x = coords.x;
-      let y = coords.y;
+      const x = coords.x;
+      const y = coords.y;
       
       // Don't apply angle snapping during drawing - keep it smooth for the live preview
       // We'll only snap when committing points to the route
@@ -4723,7 +4723,7 @@ export default function Home() {
                   <div className="absolute top-[70%] left-0 right-0 h-[1px] bg-gray-300"></div>
                   <div className="absolute top-[80%] left-0 right-0 h-[1px] bg-gray-300"></div>
                   <div className="absolute top-[90%] left-0 right-0 h-[1px] bg-gray-300"></div>
-                </div>
+      </div>
               ) : (
                 /* Goaline View - Very light grey background with thin grey yard lines */
                 <div className="absolute top-0 left-0 w-full h-full bg-gray-50">
@@ -4737,7 +4737,7 @@ export default function Home() {
                   <div className="absolute top-[70%] left-0 right-0 h-[1px] bg-gray-300"></div>
                   <div className="absolute top-[80%] left-0 right-0 h-[1px] bg-gray-300"></div>
                   <div className="absolute top-[90%] left-0 right-0 h-[1px] bg-gray-300"></div>
-                </div>
+      </div>
               )}
             </div>
           )}
@@ -5711,7 +5711,7 @@ export default function Home() {
                           {colorOption.label}
                         </span>
                       )}
-                    </div>
+            </div>
                   );
                 })}
                 <button

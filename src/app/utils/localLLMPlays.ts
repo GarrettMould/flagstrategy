@@ -515,11 +515,31 @@ export function initializeLocalLLMPlays(): void {
     
     // Add plays that don't already exist
     // Type assertion needed because JSON types are inferred as string instead of literal types
-    const playsToAdd: SavedPlay[] = (LLM_PLAYS_JSON.allPlays as any[])
-      .filter((play: any) => !existingPlayIds.has(play.id))
-      .map((play: any) => {
+    interface LLMPlay {
+      id: string;
+      name: string;
+      players?: Array<{
+        id: string;
+        x: number;
+        y: number;
+        color: string;
+        type: 'offense' | 'defense';
+      }>;
+      routes?: Array<{
+        id: string;
+        points: Array<{ x: number; y: number }>;
+        style: 'solid' | 'dashed';
+        lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
+        endpointType?: string;
+        [key: string]: unknown;
+      }>;
+      [key: string]: unknown;
+    }
+    const playsToAdd: SavedPlay[] = (LLM_PLAYS_JSON.allPlays as LLMPlay[])
+      .filter((play: LLMPlay) => !existingPlayIds.has(play.id))
+      .map((play: LLMPlay) => {
         // Remove endpointType from routes if present (not part of SavedPlay interface)
-        const routes = play.routes?.map((route: any) => {
+        const routes = play.routes?.map((route) => {
           const { endpointType, ...routeWithoutEndpoint } = route;
           return routeWithoutEndpoint;
         }) || [];
