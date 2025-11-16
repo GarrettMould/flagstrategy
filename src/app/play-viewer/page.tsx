@@ -343,7 +343,9 @@ export default function PlayViewer() {
               currentPlay.routes?.forEach(route => {
                 if (!route.points || route.points.length === 0) return;
 
-                ctx.strokeStyle = route.color === 'black' ? '#000000' : route.color;
+                // Routes may not have a color property, default to black
+                const routeColor = (route as { color?: string }).color || '#000000';
+                ctx.strokeStyle = routeColor === 'black' ? '#000000' : routeColor;
                 ctx.lineWidth = 3;
                 ctx.setLineDash(route.style === 'dashed' ? [10, 5] : []);
 
@@ -376,7 +378,7 @@ export default function PlayViewer() {
                   const secondLastPoint = route.points[route.points.length - 2];
                   const angle = Math.atan2(lastPoint.y - secondLastPoint.y, lastPoint.x - secondLastPoint.x);
                   
-                  ctx.fillStyle = route.color === 'black' ? '#000000' : route.color;
+                  ctx.fillStyle = routeColor === 'black' ? '#000000' : routeColor;
                   ctx.beginPath();
                   ctx.moveTo(lastPoint.x, lastPoint.y);
                   ctx.lineTo(
