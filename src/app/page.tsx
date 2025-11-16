@@ -100,14 +100,14 @@ function UserMenu() {
           <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-20">
             <div className="px-4 py-2 text-sm text-gray-700 border-b">
               {user.email}
-            </div>
+          </div>
             <button
               onClick={handleLogout}
               className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
             >
               Sign Out
             </button>
-          </div>
+        </div>
         </>
       )}
     </div>
@@ -241,6 +241,10 @@ export default function Home() {
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
   const [selectedPlayerForColor, setSelectedPlayerForColor] = useState<string | null>(null);
   const [colorPickerPosition, setColorPickerPosition] = useState<{ x: number; y: number } | null>(null);
+  const [showRouteColorPicker, setShowRouteColorPicker] = useState<boolean>(false);
+  const [selectedRouteForColor, setSelectedRouteForColor] = useState<string | null>(null);
+  const [routeColorPickerPosition, setRouteColorPickerPosition] = useState<{ x: number; y: number } | null>(null);
+  const [routeLongPressTimer, setRouteLongPressTimer] = useState<NodeJS.Timeout | null>(null);
   const [hasDragged, setHasDragged] = useState<boolean>(false);
   const [history, setHistory] = useState<{ players: Player[], routes: Route[], textBoxes: TextBox[], circles: Circle[], footballs: Football[], playerRouteAssociations: Map<string, string[]> }[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -501,21 +505,40 @@ export default function Home() {
       return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
     }
     
+    // Use Catmull-Rom spline for much smoother curves
+    // This creates smooth, natural-looking curves through all points
+    const catmullRomToBezier = (p0: { x: number; y: number }, p1: { x: number; y: number }, 
+                                 p2: { x: number; y: number }, p3: { x: number; y: number }, 
+                                 t: number = 0.5) => {
+      // Catmull-Rom to Cubic Bezier conversion
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      return { cp1x, cp1y, cp2x, cp2y };
+    };
+    
     let path = `M ${points[0].x} ${points[0].y}`;
     
-    // Use quadratic curves for smoother free-draw effect
-    for (let i = 1; i < points.length - 1; i++) {
-      const curr = points[i];
-      const next = points[i + 1];
-      const controlX = (curr.x + next.x) / 2;
-      const controlY = (curr.y + next.y) / 2;
-      
-      path += ` Q ${curr.x} ${curr.y} ${controlX} ${controlY}`;
+    // For the first segment, use a quadratic curve
+    if (points.length >= 2) {
+      const p0 = points[0];
+      const p1 = points[1];
+      const p2 = points.length > 2 ? points[2] : p1;
+      const { cp1x, cp1y, cp2x, cp2y } = catmullRomToBezier(p0, p0, p1, p2);
+      path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p1.x} ${p1.y}`;
     }
     
-    // Add the last point
-    const lastPoint = points[points.length - 1];
-    path += ` L ${lastPoint.x} ${lastPoint.y}`;
+    // For middle segments, use cubic Bezier curves
+    for (let i = 1; i < points.length - 1; i++) {
+      const p0 = i > 0 ? points[i - 1] : points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = i < points.length - 2 ? points[i + 2] : p2;
+      
+      const { cp1x, cp1y, cp2x, cp2y } = catmullRomToBezier(p0, p1, p2, p3);
+      path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
     
     return path;
   };
@@ -523,24 +546,52 @@ export default function Home() {
   const smoothPoints = (points: { x: number; y: number }[]) => {
     if (points.length < 3) return points;
     
-    const smoothed = [points[0]]; // Keep first point
+    // Apply multiple passes of smoothing for better results
+    let smoothed = [...points];
+    const passes = 3; // Number of smoothing passes
     
-    for (let i = 1; i < points.length - 1; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const next = points[i + 1];
+    for (let pass = 0; pass < passes; pass++) {
+      const temp = [smoothed[0]]; // Keep first point
       
-      // Average the current point with its neighbors for smoothing
-      const smoothedPoint = {
-        x: (prev.x + curr.x + next.x) / 3,
-        y: (prev.y + curr.y + next.y) / 3
-      };
+      for (let i = 1; i < smoothed.length - 1; i++) {
+        const prev = smoothed[i - 1];
+        const curr = smoothed[i];
+        const next = smoothed[i + 1];
+        
+        // Weighted average: give more weight to current point, but smooth with neighbors
+        // This creates a more natural smoothing effect
+        const weight = 0.5; // How much to blend with neighbors (0.5 = equal blend)
+        const smoothedPoint = {
+          x: curr.x * (1 - weight) + (prev.x + next.x) / 2 * weight,
+          y: curr.y * (1 - weight) + (prev.y + next.y) / 2 * weight
+        };
+        
+        temp.push(smoothedPoint);
+      }
       
-      smoothed.push(smoothedPoint);
+      temp.push(smoothed[smoothed.length - 1]); // Keep last point
+      smoothed = temp;
     }
     
-    smoothed.push(points[points.length - 1]); // Keep last point
-    return smoothed;
+    // Additional pass: apply Gaussian-like smoothing for extra smoothness
+    const final = [smoothed[0]];
+    for (let i = 1; i < smoothed.length - 1; i++) {
+      // Use a wider window for the final pass
+      const prev = smoothed[Math.max(0, i - 1)];
+      const curr = smoothed[i];
+      const next = smoothed[Math.min(smoothed.length - 1, i + 1)];
+      
+      // Gaussian-like weights: [0.25, 0.5, 0.25]
+      const smoothedPoint = {
+        x: prev.x * 0.25 + curr.x * 0.5 + next.x * 0.25,
+        y: prev.y * 0.25 + curr.y * 0.5 + next.y * 0.25
+      };
+      
+      final.push(smoothedPoint);
+    }
+    final.push(smoothed[smoothed.length - 1]);
+    
+    return final;
   };
 
   // Load play for editing on component mount
@@ -695,13 +746,116 @@ export default function Home() {
     if (selectedRouteStyle) {
       console.log('Starting route drawing, selectedRouteStyle:', selectedRouteStyle);
       
-        // Start a new route
-        setCurrentRoute([{ x, y }]);
-      setLastPoint({ x, y });
-        setIsDrawingRoute(true);
-        setLastMouseMoveTime(Date.now());
-      console.log('Route started at:', x, y);
+      // Only snap to icon for solid lines; dashed lines don't snap
+      let startX = x;
+      let startY = y;
+      if (selectedRouteStyle === 'solid') {
+        const snappedPosition = snapToPlayerIconSide(x, y);
+        if (snappedPosition) {
+          startX = snappedPosition.x;
+          startY = snappedPosition.y;
+        }
+      }
+      
+      // Start a new route
+      setCurrentRoute([{ x: startX, y: startY }]);
+      setLastPoint({ x: startX, y: startY });
+      setIsDrawingRoute(true);
+      setLastMouseMoveTime(Date.now());
+      console.log('Route started at:', startX, startY, selectedRouteStyle === 'solid' ? '(may be snapped to icon side)' : '(no icon snapping)');
     }
+  };
+
+  // Snap route start point to the nearest side of a player icon
+  // Player icons are 48px × 48px (w-12 h-12), so each side is 24px from center
+  const snapToPlayerIconSide = (clickX: number, clickY: number): { x: number; y: number } | null => {
+    const ICON_SIZE = 48; // w-12 h-12 = 48px
+    const ICON_RADIUS = ICON_SIZE / 2; // 24px
+    const SNAP_DISTANCE = 60; // Maximum distance to snap (slightly larger than icon radius)
+    
+    // Combine all players (offensive and defensive)
+    const allPlayers = [...players, ...defensivePlayers];
+    
+    let nearestPlayer: Player | null = null;
+    let minDistance = Infinity;
+    
+    // Find the nearest player icon
+    for (const player of allPlayers) {
+      const playerPosition = getAnimatedPlayerPosition(player);
+      const distance = Math.sqrt(
+        Math.pow(clickX - playerPosition.x, 2) + Math.pow(clickY - playerPosition.y, 2)
+      );
+      
+      if (distance < minDistance && distance <= SNAP_DISTANCE) {
+        minDistance = distance;
+        nearestPlayer = player;
+      }
+    }
+    
+    if (!nearestPlayer) {
+      return null; // No player icon nearby
+    }
+    
+    const playerPosition = getAnimatedPlayerPosition(nearestPlayer);
+    const dx = clickX - playerPosition.x;
+    const dy = clickY - playerPosition.y;
+    
+    // Determine which side the click is closest to
+    // Calculate distances to each side center (using Euclidean distance)
+    const topDistance = Math.sqrt(dx * dx + Math.pow(dy + ICON_RADIUS, 2)); // Top side is at y - 24
+    const rightDistance = Math.sqrt(Math.pow(dx - ICON_RADIUS, 2) + dy * dy); // Right side is at x + 24
+    const bottomDistance = Math.sqrt(dx * dx + Math.pow(dy - ICON_RADIUS, 2)); // Bottom side is at y + 24
+    const leftDistance = Math.sqrt(Math.pow(dx + ICON_RADIUS, 2) + dy * dy); // Left side is at x - 24
+    
+    // Find the minimum distance (closest side)
+    const minSideDistance = Math.min(topDistance, rightDistance, bottomDistance, leftDistance);
+    
+    // Offset to push route start slightly under the icon (3-4 pixels inward)
+    const INWARD_OFFSET = 3; // Pixels to move route start inward from icon edge
+    
+    // Return the center point of the closest side, offset inward so route starts under the icon
+    if (minSideDistance === topDistance) {
+      return { x: playerPosition.x, y: playerPosition.y - ICON_RADIUS + INWARD_OFFSET };
+    } else if (minSideDistance === rightDistance) {
+      return { x: playerPosition.x + ICON_RADIUS - INWARD_OFFSET, y: playerPosition.y };
+    } else if (minSideDistance === bottomDistance) {
+      return { x: playerPosition.x, y: playerPosition.y + ICON_RADIUS - INWARD_OFFSET };
+    } else {
+      return { x: playerPosition.x - ICON_RADIUS + INWARD_OFFSET, y: playerPosition.y };
+    }
+  };
+
+  // Snap angle to nearest clock hour (12 angles: 0°, 30°, 60°, 90°, 120°, 150°, 180°, 210°, 240°, 270°, 300°, 330°)
+  const snapToClockAngle = (angle: number): number => {
+    // Convert angle to degrees
+    const degrees = (angle * 180) / Math.PI;
+    // Normalize to 0-360
+    const normalized = ((degrees % 360) + 360) % 360;
+    // Clock hours: 0°, 30°, 60°, 90°, 120°, 150°, 180°, 210°, 240°, 270°, 300°, 330°
+    const clockAngles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+    // Find nearest clock angle
+    const nearest = clockAngles.reduce((prev, curr) => {
+      const prevDiff = Math.abs(normalized - prev);
+      const currDiff = Math.abs(normalized - curr);
+      // Handle wrap-around (e.g., 350° is closer to 0° than 330°)
+      const prevWrapDiff = Math.min(prevDiff, 360 - prevDiff);
+      const currWrapDiff = Math.min(currDiff, 360 - currDiff);
+      return currWrapDiff < prevWrapDiff ? curr : prev;
+    });
+    // Convert back to radians
+    return (nearest * Math.PI) / 180;
+  };
+
+  // Get the angle of the last segment in a route (in degrees, normalized to 0-360)
+  const getLastSegmentAngle = (route: { x: number; y: number }[]): number | null => {
+    if (route.length < 2) return null;
+    const lastPoint = route[route.length - 1];
+    const secondLastPoint = route[route.length - 2];
+    const dx = lastPoint.x - secondLastPoint.x;
+    const dy = lastPoint.y - secondLastPoint.y;
+    const angle = Math.atan2(dy, dx);
+    const degrees = (angle * 180) / Math.PI;
+    return ((degrees % 360) + 360) % 360;
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
@@ -715,14 +869,17 @@ export default function Home() {
     // Only handle route drawing if route is being drawn
     if (selectedRouteStyle && isDrawingRoute && currentRoute.length > 0) {
       const coords = getEventCoordinates(e, e.currentTarget);
-      const x = coords.x;
-      const y = coords.y;
+      let x = coords.x;
+      let y = coords.y;
+      
+      // Don't apply angle snapping during drawing - keep it smooth for the live preview
+      // We'll only snap when committing points to the route
       
       setCurrentRoute(prev => {
         const newRoute = [...prev];
         
         if (selectedLineBreakType === 'smooth') {
-          // Smooth drawing - add points with distance filtering
+          // Smooth drawing - add points with distance filtering (no angle snapping during drawing)
           if (newRoute.length === 1) {
             newRoute.push({ x, y });
             setLastPoint({ x, y });
@@ -748,8 +905,7 @@ export default function Home() {
             newRoute[1] = { x, y };
           }
         } else if (selectedLineBreakType === 'smooth-none') {
-          // Smooth line drawing with no arrow - allow multiple points like smooth
-          // This allows curved dashed lines without arrows
+          // Smooth line drawing with no arrow - same logic as smooth
           if (newRoute.length === 1) {
             newRoute.push({ x, y });
             setLastPoint({ x, y });
@@ -886,9 +1042,28 @@ export default function Home() {
       }
       
       console.log('Finishing route with points:', currentRoute, nearbyPlayer ? `near player: ${nearbyPlayer.id}` : 'no nearby player');
-        // Finish the route with smoothing applied
+      
+      // Apply angle snapping to 'none' type routes (straight lines)
+      let finalPoints = currentRoute;
+      if (selectedLineBreakType === 'none' && currentRoute.length === 2) {
+        const startPoint = currentRoute[0];
+        const endPoint = currentRoute[1];
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 0) {
+          const angle = Math.atan2(dy, dx);
+          const snappedAngle = snapToClockAngle(angle);
+          const snappedX = startPoint.x + Math.cos(snappedAngle) * distance;
+          const snappedY = startPoint.y + Math.sin(snappedAngle) * distance;
+          finalPoints = [startPoint, { x: snappedX, y: snappedY }];
+        }
+      }
+      
+      // Finish the route with smoothing applied
       // Apply smoothing to 'smooth' and 'smooth-none' types
-      const smoothedPoints = (selectedLineBreakType === 'smooth' || selectedLineBreakType === 'smooth-none') ? smoothPoints(currentRoute) : currentRoute;
+      const smoothedPoints = (selectedLineBreakType === 'smooth' || selectedLineBreakType === 'smooth-none') ? smoothPoints(finalPoints) : finalPoints;
       const newRoute: Route = {
         id: Date.now().toString(),
           points: smoothedPoints,
@@ -938,6 +1113,18 @@ export default function Home() {
           nextType = 'arrow';
         }
         return { ...route, endpointType: nextType };
+      }
+      return route;
+    }));
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  const toggleRouteStyle = (routeId: string) => {
+    setRoutes(prevRoutes => prevRoutes.map(route => {
+      if (route.id === routeId) {
+        // Toggle between dashed and solid
+        const newStyle = route.style === 'dashed' ? 'solid' : 'dashed';
+        return { ...route, style: newStyle };
       }
       return route;
     }));
@@ -1802,6 +1989,25 @@ export default function Home() {
     ));
     setShowColorPicker(false);
     setSelectedPlayerForColor(null);
+    setTimeout(() => saveToHistory(), 0);
+  };
+
+  const changeRouteColor = (routeId: string, newColor: string) => {
+    // Map color name to hex value
+    const colorMap: { [key: string]: string } = {
+      'blue': '#3b82f6',
+      'red': '#ef4444',
+      'green': '#22c55e',
+      'yellow': '#eab308',
+      'qb': '#000000'
+    };
+    const colorHex = colorMap[newColor] || newColor;
+    
+    setRoutes(prev => prev.map(route => 
+      route.id === routeId ? { ...route, color: colorHex } : route
+    ));
+    setShowRouteColorPicker(false);
+    setSelectedRouteForColor(null);
     setTimeout(() => saveToHistory(), 0);
   };
 
@@ -3311,72 +3517,34 @@ export default function Home() {
 
     // Draw field lines based on canvas background
     if (canvasBackground !== 'blank') {
-      ctx.strokeStyle = '#9ca3af'; // gray-400 for lines on white background
-      ctx.lineWidth = lineWidth;
-
       if (canvasBackground === 'field') {
-        // Draw yard lines
-        for (let i = 1; i < 10; i++) {
-          const y = (baseSize * i) / 10;
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(baseSize, y);
-          ctx.stroke();
-        }
-
-        // Draw hash marks
-        const hashWidth = baseSize * 0.01;
-        const hashHeight = baseSize * 0.02;
+        // Draw hash marks near sidelines (black, horizontal dashes)
+        const hashHeight = baseSize * 0.004; // Thick hash marks (4px equivalent, slightly less than route's 5px)
+        const hashWidth = baseSize * 0.016; // Horizontal width (16px equivalent)
         for (let i = 0; i < 10; i++) {
           const y = (baseSize * i) / 10;
-          const leftX = baseSize * 0.1;
-          const rightX = baseSize * 0.9;
+          const leftX = baseSize * 0.02; // 2% from left edge
+          const rightX = baseSize * 0.98 - hashWidth; // 2% from right edge, accounting for hash width
           
-          ctx.fillStyle = '#9ca3af'; // gray-400
+          ctx.fillStyle = '#000000'; // Black
           ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
           ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
         }
-
-        // Draw sidelines
-        ctx.fillStyle = '#9ca3af'; // gray-400
-        ctx.fillRect(0, 0, baseSize, lineWidth);
-        ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
       } else if (canvasBackground === 'goaline') {
         // Blank endzone at top (first 30% - white background, no drawing needed)
         
-        // Draw goal line at bottom of endzone (30%)
-        const goalLineY = baseSize * 0.3;
-        ctx.beginPath();
-        ctx.moveTo(0, goalLineY);
-        ctx.lineTo(baseSize, goalLineY);
-        ctx.stroke();
-        
-        // Draw yard lines (starting from 40% since 0-30% is blank endzone)
-        for (let i = 4; i < 10; i++) {
-          const y = (baseSize * i) / 10;
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(baseSize, y);
-          ctx.stroke();
-        }
-
-        // Draw hash marks (starting from 35% since 0-30% is blank endzone)
-        const hashWidth = baseSize * 0.01;
-        const hashHeight = baseSize * 0.02;
+        // Draw hash marks near sidelines (black, horizontal dashes) - starting from 35% since 0-30% is blank endzone
+        const hashHeight = baseSize * 0.004; // Thick hash marks (4px equivalent, slightly less than route's 5px)
+        const hashWidth = baseSize * 0.016; // Horizontal width (16px equivalent)
         for (let i = 3.5; i < 10; i += 1) {
           const y = (baseSize * i) / 10;
-          const leftX = baseSize * 0.1;
-          const rightX = baseSize * 0.9;
+          const leftX = baseSize * 0.02; // 2% from left edge
+          const rightX = baseSize * 0.98 - hashWidth; // 2% from right edge, accounting for hash width
           
-          ctx.fillStyle = '#9ca3af'; // gray-400
+          ctx.fillStyle = '#000000'; // Black
           ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
           ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
         }
-
-        // Draw sidelines
-        ctx.fillStyle = '#9ca3af'; // gray-400
-        ctx.fillRect(0, 0, baseSize, lineWidth);
-        ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
       }
     }
 
@@ -3700,70 +3868,34 @@ export default function Home() {
           ctx.lineWidth = lineWidth;
           
           if (canvasBackground === 'field') {
-            // Yard lines
+            // Draw hash marks near sidelines (black, horizontal dashes)
+            const hashHeight = baseSize * 0.004; // Thick hash marks (4px equivalent, slightly less than route's 5px)
+            const hashWidth = baseSize * 0.016; // Horizontal width (16px equivalent)
             for (let i = 10; i <= 90; i += 10) {
               const y = (i / 100) * baseSize;
-              ctx.beginPath();
-              ctx.moveTo(0, y);
-              ctx.lineTo(baseSize, y);
-              ctx.stroke();
-            }
-
-            // Hash marks
-            const hashMarkLength = baseSize * 0.03;
-            for (let i = 10; i <= 90; i += 10) {
-              const y = (i / 100) * baseSize;
-              // Left hash marks
-              ctx.beginPath();
-              ctx.moveTo(baseSize * 0.2, y);
-              ctx.lineTo(baseSize * 0.2 + hashMarkLength, y);
-              ctx.stroke();
-              // Right hash marks
-              ctx.beginPath();
-              ctx.moveTo(baseSize * 0.8, y);
-              ctx.lineTo(baseSize * 0.8 - hashMarkLength, y);
-              ctx.stroke();
+              const leftX = baseSize * 0.02; // 2% from left edge
+              const rightX = baseSize * 0.98 - hashWidth; // 2% from right edge, accounting for hash width
+              
+              ctx.fillStyle = '#000000'; // Black
+              ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
+              ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
             }
           } else if (canvasBackground === 'goaline') {
             // Blank endzone at top (first 30% - white background, no drawing needed)
             
-            // Draw goal line at bottom of endzone (30%)
-            const goalLineY = baseSize * 0.3;
-            ctx.beginPath();
-            ctx.moveTo(0, goalLineY);
-            ctx.lineTo(baseSize, goalLineY);
-            ctx.stroke();
-            
-            // Yard lines (starting from 40% since 0-30% is blank endzone)
-            for (let i = 40; i <= 90; i += 10) {
-              const y = (i / 100) * baseSize;
-              ctx.beginPath();
-              ctx.moveTo(0, y);
-              ctx.lineTo(baseSize, y);
-              ctx.stroke();
-            }
-
-            // Hash marks (starting from 35% since 0-30% is blank endzone)
-            const hashMarkLength = baseSize * 0.03;
+            // Draw hash marks near sidelines (black, horizontal dashes) - starting from 35% since 0-30% is blank endzone
+            const hashHeight = baseSize * 0.004; // Thick hash marks (4px equivalent, slightly less than route's 5px)
+            const hashWidth = baseSize * 0.016; // Horizontal width (16px equivalent)
             for (let i = 35; i <= 95; i += 10) {
               const y = (i / 100) * baseSize;
-              // Left hash marks
-              ctx.beginPath();
-              ctx.moveTo(baseSize * 0.2, y);
-              ctx.lineTo(baseSize * 0.2 + hashMarkLength, y);
-              ctx.stroke();
-              // Right hash marks
-              ctx.beginPath();
-              ctx.moveTo(baseSize * 0.8, y);
-              ctx.lineTo(baseSize * 0.8 - hashMarkLength, y);
-              ctx.stroke();
+              const leftX = baseSize * 0.02; // 2% from left edge
+              const rightX = baseSize * 0.98 - hashWidth; // 2% from right edge, accounting for hash width
+              
+              ctx.fillStyle = '#000000'; // Black
+              ctx.fillRect(leftX, y - hashHeight/2, hashWidth, hashHeight);
+              ctx.fillRect(rightX, y - hashHeight/2, hashWidth, hashHeight);
             }
           }
-          
-          // Draw sidelines (for both field and goaline)
-          ctx.fillStyle = '#9ca3af'; // gray-400
-          ctx.fillRect(0, 0, baseSize, lineWidth);
-          ctx.fillRect(0, baseSize - lineWidth, baseSize, lineWidth);
         }
 
         // Draw players at animated positions - use same logic as getAnimatedPlayerPosition
@@ -4154,7 +4286,7 @@ export default function Home() {
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
+        </svg>
               </button>
             </div>
           <div className="space-y-2">
@@ -4256,9 +4388,9 @@ export default function Home() {
               </svg>
                         Delete Folder
             </button>
-                    </div>
+          </div>
                   )}
-                </div>
+    </div>
               </div>
             ))}
           </div>
@@ -4333,7 +4465,7 @@ export default function Home() {
                       </option>
                     ))}
                   </select>
-                </div>
+          </div>
               </>
             )}
             
@@ -4365,8 +4497,8 @@ export default function Home() {
                     className="w-5 h-5"
                   />
                 </button>
-              </div>
-            </div>
+        </div>
+      </div>
 
             {/* Canvas Background Section - Commented out for now */}
             {/* <div className="flex items-center gap-3">
@@ -4460,22 +4592,22 @@ export default function Home() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-        
+              </div>
+            </div>
+
         {/* Canvas Container - left-aligned field with border */}
         <div className="bg-gray-50 relative overflow-auto h-[800px] md:h-auto md:flex-1 md:min-h-0">
-        <div className="bg-white border-r border-gray-300 flex flex-col overflow-hidden h-full w-full">
+        <div className="bg-gray-50 border-r border-gray-300 flex flex-col overflow-hidden h-full w-full">
           {/* Canvas Area */}
-          <div className="bg-white relative overflow-hidden w-full h-[800px] md:h-full md:flex-1" data-field-container style={{ position: 'relative' }}>
+          <div className="bg-gray-50 relative overflow-hidden w-full h-[800px] md:h-full md:flex-1" data-field-container style={{ position: 'relative', backgroundColor: '#f9fafb' }}>
         {/* Save Notification */}
         {showSaveNotification && (
           <div className="absolute top-4 left-6 z-20 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-opacity duration-300 opacity-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
+                  </svg>
             <span className="font-medium">Play saved</span>
-          </div>
+                  </div>
         )}
         {/* Undo/Redo Buttons */}
         <div className="absolute top-4 right-6 z-10 flex space-x-2">
@@ -4579,80 +4711,32 @@ export default function Home() {
           {canvasBackground !== 'blank' && (
             <div className="absolute inset-0">
               {canvasBackground === 'field' ? (
-                /* Regular Field */
-                <div className="absolute top-0 left-0 w-full h-full">
-                  {/* 10-yard lines */}
-                  <div className="absolute top-[10%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[20%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  
-                  {/* Hash marks */}
-                  <div className="absolute top-[5%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[5%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[15%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[15%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[25%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[25%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  
-                  {/* Sidelines */}
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
-                  <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+                /* Regular Field - Very light grey background with thin grey yard lines */
+                <div className="absolute top-0 left-0 w-full h-full bg-gray-50">
+                  {/* 10-yard lines - very thin grey */}
+                  <div className="absolute top-[10%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[20%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[30%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[40%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[50%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[60%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[70%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[80%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[90%] left-0 right-0 h-[1px] bg-gray-300"></div>
                 </div>
               ) : (
-                /* Goaline View - Blank endzone at top */
-                <div className="absolute top-0 left-0 w-full h-full">
-                  {/* Blank endzone at top (first 30% of field) - white background */}
-                  
+                /* Goaline View - Very light grey background with thin grey yard lines */
+                <div className="absolute top-0 left-0 w-full h-full bg-gray-50">
                   {/* Goal line at bottom of endzone (30%) */}
-                  <div className="absolute top-[30%] left-0 right-0 h-0.5 bg-gray-400"></div>
+                  <div className="absolute top-[30%] left-0 right-0 h-[1px] bg-gray-300"></div>
                   
-                  {/* 10-yard lines (starting from 40% since 0-30% is blank endzone) */}
-                  <div className="absolute top-[40%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[50%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[60%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[70%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[80%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  <div className="absolute top-[90%] left-0 right-0 h-0.5 bg-gray-400"></div>
-                  
-                  {/* Hash marks (starting from 35% since 0-30% is blank endzone) */}
-                  <div className="absolute top-[35%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[35%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[45%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[45%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[55%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[55%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[65%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[65%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[75%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[75%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[85%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[85%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[95%] left-[10%] w-1 h-2 bg-gray-400"></div>
-                  <div className="absolute top-[95%] left-[90%] w-1 h-2 bg-gray-400"></div>
-                  
-                  {/* Sidelines */}
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gray-400"></div>
-                  <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-400"></div>
+                  {/* 10-yard lines (starting from 40% since 0-30% is blank endzone) - very thin grey */}
+                  <div className="absolute top-[40%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[50%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[60%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[70%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[80%] left-0 right-0 h-[1px] bg-gray-300"></div>
+                  <div className="absolute top-[90%] left-0 right-0 h-[1px] bg-gray-300"></div>
                 </div>
               )}
             </div>
@@ -4661,6 +4745,28 @@ export default function Home() {
           {routes.map((route) => {
             const isSelected = selectedItems.routes.includes(route.id);
             if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
+            
+            // Find the associated player for this route to get its color
+            let routeColor = 'black'; // Default color
+            let routeColorHex = '#000000';
+            for (const [playerId, routeIds] of playerRouteAssociations.entries()) {
+              if (routeIds.includes(route.id)) {
+                const player = players.find(p => p.id === playerId);
+                if (player) {
+                  // Map player color to hex value
+                  const colorMap: { [key: string]: string } = {
+                    'blue': '#3b82f6',
+                    'red': '#ef4444',
+                    'green': '#22c55e',
+                    'yellow': '#eab308',
+                    'qb': '#000000'
+                  };
+                  routeColor = player.color;
+                  routeColorHex = colorMap[player.color] || '#000000';
+                  break;
+                }
+              }
+            }
             
             // Calculate arrow direction from the last significant movement segment
             // Look back to find a meaningful direction (skip very short segments)
@@ -4704,6 +4810,11 @@ export default function Home() {
             >
                 {(route.lineBreakType === 'smooth' || route.lineBreakType === 'smooth-none') ? (
                   <path
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleRouteStyle(route.id);
+                    }}
+                    style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
                     d={(() => {
                       // If there's an arrow or dot, stop the line slightly before the last point
                       if (shouldShortenLine && route.points.length >= 2) {
@@ -4733,12 +4844,17 @@ export default function Home() {
                       }
                     })()}
                     fill="none"
-                    stroke={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
-                    strokeWidth={isSelected ? "4" : selectedRoute === route.id ? "5" : "3"}
+                    stroke={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
+                    strokeWidth={isSelected ? "6" : selectedRoute === route.id ? "7" : "5"}
                     strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
                   />
                 ) : (
               <polyline
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleRouteStyle(route.id);
+                }}
+                style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
                 points={(() => {
                   // If there's an arrow or dot, stop the line slightly before the last point
                   if (shouldShortenLine && route.points.length >= 2) {
@@ -4768,8 +4884,8 @@ export default function Home() {
                   }
                 })()}
                   fill="none"
-                  stroke={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
-                  strokeWidth={isSelected ? "4" : selectedRoute === route.id ? "5" : "3"}
+                  stroke={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
+                  strokeWidth={isSelected ? "6" : selectedRoute === route.id ? "7" : "5"}
                 strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
               />
                 )}
@@ -4777,7 +4893,7 @@ export default function Home() {
                 {shouldShowArrow && (
                   <polygon
                     points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - 0.6) * 12},${arrowY - Math.sin(angle - 0.6) * 12} ${arrowX - Math.cos(angle + 0.6) * 12},${arrowY - Math.sin(angle + 0.6) * 12}`}
-                    fill={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
+                    fill={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
                   />
                 )}
                 {/* Dot at the end - only for routes that should show dots */}
@@ -4786,7 +4902,7 @@ export default function Home() {
                     cx={dotX}
                     cy={dotY}
                     r="8"
-                    fill={isSelected ? "blue" : selectedRoute === route.id ? "red" : "black"}
+                    fill={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
                   />
                 )}
             </svg>
@@ -4795,7 +4911,63 @@ export default function Home() {
               <div
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleRouteArrow(route.id);
+                  // Only toggle arrow on click if not long-pressing
+                  if (routeLongPressTimer === null) {
+                    toggleRouteArrow(route.id);
+                  }
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  // Start long-press timer
+                  const timer = setTimeout(() => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setRouteColorPickerPosition({
+                      x: rect.left + rect.width / 2,
+                      y: rect.top - 10
+                    });
+                    setSelectedRouteForColor(route.id);
+                    setShowRouteColorPicker(true);
+                    setRouteLongPressTimer(null);
+                  }, 500); // 500ms long press
+                  setRouteLongPressTimer(timer);
+                }}
+                onMouseUp={(e) => {
+                  e.stopPropagation();
+                  // Clear long-press timer if mouse is released
+                  if (routeLongPressTimer) {
+                    clearTimeout(routeLongPressTimer);
+                    setRouteLongPressTimer(null);
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  // Clear timer if mouse leaves
+                  if (routeLongPressTimer) {
+                    clearTimeout(routeLongPressTimer);
+                    setRouteLongPressTimer(null);
+                  }
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  // Start long-press timer for touch
+                  const timer = setTimeout(() => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setRouteColorPickerPosition({
+                      x: rect.left + rect.width / 2,
+                      y: rect.top - 10
+                    });
+                    setSelectedRouteForColor(route.id);
+                    setShowRouteColorPicker(true);
+                    setRouteLongPressTimer(null);
+                  }, 500); // 500ms long press
+                  setRouteLongPressTimer(timer);
+                }}
+                onTouchEnd={(e) => {
+                  e.stopPropagation();
+                  // Clear long-press timer if touch ends
+                  if (routeLongPressTimer) {
+                    clearTimeout(routeLongPressTimer);
+                    setRouteLongPressTimer(null);
+                  }
                 }}
                 className="absolute cursor-pointer"
                 style={{
@@ -4805,9 +4977,10 @@ export default function Home() {
                   height: '20px',
                   zIndex: 10,
                   borderRadius: '50%',
-                  backgroundColor: 'transparent'
+                  backgroundColor: 'transparent',
+                  pointerEvents: 'auto'
                 }}
-                title={`Click to cycle endpoint: ${endpointType === 'arrow' ? 'arrow → dot' : endpointType === 'dot' ? 'dot → none' : 'none → arrow'}`}
+                title={`Click to cycle endpoint, hold to change color: ${endpointType === 'arrow' ? 'arrow → dot' : endpointType === 'dot' ? 'dot → none' : 'none → arrow'}`}
               />
             )}
             {/* Delete button for selected routes - mobile only */}
@@ -4845,7 +5018,37 @@ export default function Home() {
           })}
           
           {/* Current Route Being Drawn */}
-          {currentRoute.length > 1 && (
+          {currentRoute.length > 1 && (() => {
+            // Find the nearest player to the start of the route to get its color
+            let currentRouteColor = '#000000'; // Default black
+            if (currentRoute.length > 0) {
+              const routeStart = currentRoute[0];
+              let nearbyPlayer: Player | null = null;
+              let closestDistance = Infinity;
+              
+              for (const player of players) {
+                const distance = Math.sqrt(
+                  Math.pow(routeStart.x - player.x, 2) + Math.pow(routeStart.y - player.y, 2)
+                );
+                if (distance < closestDistance) {
+                  closestDistance = distance;
+                  nearbyPlayer = player;
+                }
+              }
+              
+              if (nearbyPlayer) {
+                const colorMap: { [key: string]: string } = {
+                  'blue': '#3b82f6',
+                  'red': '#ef4444',
+                  'green': '#22c55e',
+                  'yellow': '#eab308',
+                  'qb': '#000000'
+                };
+                currentRouteColor = colorMap[nearbyPlayer.color] || '#000000';
+              }
+            }
+            
+            return (
             <svg
               className="absolute inset-0 w-full h-full pointer-events-none"
               style={{ zIndex: 2 }}
@@ -4881,8 +5084,8 @@ export default function Home() {
                     }
                   })()}
                   fill="none"
-                  stroke="black"
-                  strokeWidth="3"
+                  stroke={currentRouteColor}
+                  strokeWidth="5"
                   strokeDasharray={selectedRouteStyle === 'dashed' ? '8,4' : 'none'}
                   opacity="0.7"
                 />
@@ -4917,8 +5120,8 @@ export default function Home() {
                   }
                 })()}
                 fill="none"
-                stroke="black"
-                strokeWidth="3"
+                stroke={currentRouteColor}
+                strokeWidth="5"
                 strokeDasharray={selectedRouteStyle === 'dashed' ? '8,4' : 'none'}
                 opacity="0.7"
               />
@@ -4953,13 +5156,14 @@ export default function Home() {
                 return (
                   <polygon
                     points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - 0.6) * 12},${arrowY - Math.sin(angle - 0.6) * 12} ${arrowX - Math.cos(angle + 0.6) * 12},${arrowY - Math.sin(angle + 0.6) * 12}`}
-                    fill="black"
+                    fill={currentRouteColor}
                     opacity="0.7"
                   />
                 );
               })()}
             </svg>
-          )}
+            );
+          })()}
 
           {/* Selection Box */}
           {selectionBox && (
@@ -5021,25 +5225,55 @@ export default function Home() {
                 </svg>
                 <span className="hidden md:inline">Delete Selected</span>
               </button>
-            </div>
+      </div>
           )}
 
           {/* Players */}
           {[...players, ...defensivePlayers].map((player) => {
             const colorOption = player.type === 'defense' 
               ? (player.color === 'purple' 
-                  ? { name: 'purple', color: 'bg-purple-500', label: 'D' }
-                  : { name: 'grey', color: 'bg-gray-500', label: 'D' })
+                  ? { name: 'purple', color: 'bg-purple-500', borderColor: 'border-purple-500', label: 'D' }
+                  : { name: 'grey', color: 'bg-gray-500', borderColor: 'border-gray-500', label: 'D' })
               : colors.find(c => c.name === player.color);
             const animatedPosition = getAnimatedPlayerPosition(player);
             const isSelected = selectedItems.players.includes(player.id);
+            
+            // Check if this is the C icon (yellow player) - should be square
+            const isC = player.color === 'yellow' && player.type === 'offense';
+            
+            // Map player colors to border colors
+            const borderColorMap: { [key: string]: string } = {
+              'blue': 'border-blue-500',
+              'red': 'border-red-500',
+              'green': 'border-green-500',
+              'yellow': 'border-yellow-500',
+              'qb': 'border-black',
+              'purple': 'border-purple-500',
+              'grey': 'border-gray-500'
+            };
+            // Map player colors to background colors (lighter shades)
+            const bgColorMap: { [key: string]: string } = {
+              'blue': 'bg-blue-100',
+              'red': 'bg-red-100',
+              'green': 'bg-green-100',
+              'yellow': 'bg-yellow-100',
+              'qb': 'bg-gray-100',
+              'purple': 'bg-purple-100',
+              'grey': 'bg-gray-100'
+            };
+            const borderColor = player.type === 'defense' 
+              ? (player.color === 'purple' ? 'border-purple-500' : 'border-gray-500')
+              : (borderColorMap[player.color] || 'border-gray-500');
+            const bgColor = player.type === 'defense'
+              ? (player.color === 'purple' ? 'bg-purple-100' : 'bg-gray-100')
+              : (bgColorMap[player.color] || 'bg-gray-100');
             
             return (
               <div
                 key={player.id}
                 data-player={player.id}
-                className={`absolute w-12 h-12 rounded-full ${colorOption?.color || 'bg-gray-500'} transform -translate-x-1/2 -translate-y-1/2 ${
-                  isSelected ? 'border-4 border-blue-500 ring-4 ring-blue-300' : ''
+                className={`absolute w-12 h-12 ${isC ? 'rounded' : 'rounded-full'} ${bgColor} border-[6px] ${borderColor} transform -translate-x-1/2 -translate-y-1/2 ${
+                  isSelected ? 'ring-4 ring-blue-300' : ''
                 } ${
                   mode === 'erase' && !isAnimating ? 'cursor-pointer' : 
                   !isAnimating ? 'cursor-move' : 'cursor-pointer'
@@ -5074,7 +5308,15 @@ export default function Home() {
                 onClick={(e) => !isAnimating && handlePlayerClick(e, player.id)}
               >
                 {colorOption?.label && (
-                  <span className="text-white text-xs font-bold">
+                  <span className={`text-xs font-bold ${
+                    player.color === 'blue' ? 'text-blue-500' :
+                    player.color === 'red' ? 'text-red-500' :
+                    player.color === 'green' ? 'text-green-500' :
+                    player.color === 'yellow' ? 'text-yellow-500' :
+                    player.color === 'qb' ? 'text-black' :
+                    player.type === 'defense' && player.color === 'purple' ? 'text-purple-500' :
+                    'text-gray-500'
+                  }`}>
                     {colorOption.label}
                   </span>
                 )}
@@ -5104,7 +5346,7 @@ export default function Home() {
                     </svg>
                   </button>
                 )}
-              </div>
+      </div>
             );
           })}
 
@@ -5189,10 +5431,10 @@ export default function Home() {
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+              </svg>
                     </button>
                   )}
-                </div>
+          </div>
               )}
             </div>
             );
@@ -5273,7 +5515,7 @@ export default function Home() {
                   </button>
                 )}
               </div>
-            </div>
+              </div>
             );
           })}
 
@@ -5351,7 +5593,7 @@ export default function Home() {
                     </svg>
                   </button>
                 )}
-              </div>
+            </div>
             </div>
             );
           })}
@@ -5364,40 +5606,114 @@ export default function Home() {
             {/* Left Side: Player Icons in 2 rows */}
             <div className="flex-1 flex flex-col justify-center items-center gap-1.5">
               <div className="flex justify-between items-center w-full px-8">
-                {colors.slice(0, Math.ceil(colors.length / 2)).map((colorOption) => (
-                  <div
-                    key={colorOption.name}
-                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0 border-0`}
-                    onClick={() => {
-                      setSelectedColor(colorOption.name);
-                      addPlayerToCanvas(colorOption.name);
-                    }}
-                  >
-                    {colorOption.label && (
-                      <span className="text-white text-xs font-bold">
-                        {colorOption.label}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                {colors.slice(0, Math.ceil(colors.length / 2)).map((colorOption) => {
+                  // Map player colors to border colors
+                  const borderColorMap: { [key: string]: string } = {
+                    'blue': 'border-blue-500',
+                    'red': 'border-red-500',
+                    'green': 'border-green-500',
+                    'yellow': 'border-yellow-500',
+                    'qb': 'border-black',
+                    'purple': 'border-purple-500',
+                    'grey': 'border-gray-500'
+                  };
+                  // Map player colors to background colors (lighter shades)
+                  const bgColorMap: { [key: string]: string } = {
+                    'blue': 'bg-blue-100',
+                    'red': 'bg-red-100',
+                    'green': 'bg-green-100',
+                    'yellow': 'bg-yellow-100',
+                    'qb': 'bg-gray-100',
+                    'purple': 'bg-purple-100',
+                    'grey': 'bg-gray-100'
+                  };
+                  // Map player colors to text colors
+                  const textColorMap: { [key: string]: string } = {
+                    'blue': 'text-blue-500',
+                    'red': 'text-red-500',
+                    'green': 'text-green-500',
+                    'yellow': 'text-yellow-500',
+                    'qb': 'text-black',
+                    'purple': 'text-purple-500',
+                    'grey': 'text-gray-500'
+                  };
+                  const borderColor = borderColorMap[colorOption.name] || 'border-gray-500';
+                  const bgColor = bgColorMap[colorOption.name] || 'bg-gray-100';
+                  const textColor = textColorMap[colorOption.name] || 'text-gray-500';
+                  const isC = colorOption.name === 'yellow';
+                  
+                  return (
+                    <div
+                      key={colorOption.name}
+                      className={`w-12 h-12 ${isC ? 'rounded' : 'rounded-full'} ${bgColor} border-[6px] ${borderColor} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0`}
+                      onClick={() => {
+                        setSelectedColor(colorOption.name);
+                        addPlayerToCanvas(colorOption.name);
+                      }}
+                    >
+                      {colorOption.label && (
+                        <span className={`${textColor} text-xs font-bold`}>
+                          {colorOption.label}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div className="flex justify-between items-center w-full px-8">
-                {colors.slice(Math.ceil(colors.length / 2)).map((colorOption) => (
-                  <div
-                    key={colorOption.name}
-                    className={`w-12 h-12 rounded-full ${colorOption.color} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0 border-0`}
-                    onClick={() => {
-                      setSelectedColor(colorOption.name);
-                      addPlayerToCanvas(colorOption.name);
-                    }}
-                  >
-                    {colorOption.label && (
-                      <span className="text-white text-xs font-bold">
-                        {colorOption.label}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                {colors.slice(Math.ceil(colors.length / 2)).map((colorOption) => {
+                  // Map player colors to border colors
+                  const borderColorMap: { [key: string]: string } = {
+                    'blue': 'border-blue-500',
+                    'red': 'border-red-500',
+                    'green': 'border-green-500',
+                    'yellow': 'border-yellow-500',
+                    'qb': 'border-black',
+                    'purple': 'border-purple-500',
+                    'grey': 'border-gray-500'
+                  };
+                  // Map player colors to background colors (lighter shades)
+                  const bgColorMap: { [key: string]: string } = {
+                    'blue': 'bg-blue-100',
+                    'red': 'bg-red-100',
+                    'green': 'bg-green-100',
+                    'yellow': 'bg-yellow-100',
+                    'qb': 'bg-gray-100',
+                    'purple': 'bg-purple-100',
+                    'grey': 'bg-gray-100'
+                  };
+                  // Map player colors to text colors
+                  const textColorMap: { [key: string]: string } = {
+                    'blue': 'text-blue-500',
+                    'red': 'text-red-500',
+                    'green': 'text-green-500',
+                    'yellow': 'text-yellow-500',
+                    'qb': 'text-black',
+                    'purple': 'text-purple-500',
+                    'grey': 'text-gray-500'
+                  };
+                  const borderColor = borderColorMap[colorOption.name] || 'border-gray-500';
+                  const bgColor = bgColorMap[colorOption.name] || 'bg-gray-100';
+                  const textColor = textColorMap[colorOption.name] || 'text-gray-500';
+                  const isC = colorOption.name === 'yellow';
+                  
+                  return (
+                    <div
+                      key={colorOption.name}
+                      className={`w-12 h-12 ${isC ? 'rounded' : 'rounded-full'} ${bgColor} border-[6px] ${borderColor} cursor-pointer hover:scale-105 transition-transform flex items-center justify-center relative flex-shrink-0`}
+                      onClick={() => {
+                        setSelectedColor(colorOption.name);
+                        addPlayerToCanvas(colorOption.name);
+                      }}
+                    >
+                      {colorOption.label && (
+                        <span className={`${textColor} text-xs font-bold`}>
+                          {colorOption.label}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
                 <button
                   onClick={addAllPlayersToCanvas}
                   disabled={players.length > 0}
@@ -5410,13 +5726,13 @@ export default function Home() {
                 >
                   <span className="text-[10px] leading-tight">Add All</span>
                 </button>
-              </div>
+    </div>
             </div>
 
             {/* Right Side: Route Tools (1/3 width) */}
             <div className="w-1/3 border-l border-gray-200 pl-6">
               <div className="flex flex-col gap-1">
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="flex gap-1.5">
                   <button
                     className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
                       selectedRouteStyle === 'solid' && selectedLineBreakType === 'rigid'
@@ -5427,7 +5743,7 @@ export default function Home() {
                       setSelectedRouteStyle('solid');
                       setSelectedLineBreakType('rigid');
                     }}
-                    title="Solid Line - Sharp Turns"
+                    title="Straight Line"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
                       {renderRouteButtonIcon(routeButtonIcons['solid-rigid'])}
@@ -5443,42 +5759,10 @@ export default function Home() {
                       setSelectedRouteStyle('solid');
                       setSelectedLineBreakType('smooth');
                     }}
-                    title="Solid Line - Curved Turns"
+                    title="Rounded Line"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
                       {renderRouteButtonIcon(routeButtonIcons['solid-smooth'])}
-                    </svg>
-                  </button>
-                  <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
-                      selectedRouteStyle === 'dashed' && selectedLineBreakType === 'rigid'
-                        ? 'bg-gray-50'
-                        : ''
-                    }`}
-                    onClick={() => {
-                      setSelectedRouteStyle('dashed');
-                      setSelectedLineBreakType('rigid');
-                    }}
-                    title="Dashed Line - Sharp Turns"
-                  >
-                    <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      {renderRouteButtonIcon(routeButtonIcons['dashed-rigid'])}
-                    </svg>
-                  </button>
-                  <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
-                      selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth'
-                        ? 'bg-gray-50'
-                        : ''
-                    }`}
-                    onClick={() => {
-                      setSelectedRouteStyle('dashed');
-                      setSelectedLineBreakType('smooth');
-                    }}
-                    title="Dashed Line - Curved Turns"
-                  >
-                    <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      {renderRouteButtonIcon(routeButtonIcons['dashed-smooth'])}
                     </svg>
                   </button>
                   <button
@@ -5491,26 +5775,10 @@ export default function Home() {
                       setSelectedRouteStyle('dashed');
                       setSelectedLineBreakType('none');
                     }}
-                    title="Dashed Line - Straight, No Arrow (Pre-play Motion)"
+                    title="Dashed Line (No Icon Snapping, No Arrow)"
                   >
                     <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
                       <path d="M10 25 L40 25" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
-                    </svg>
-                  </button>
-                  <button
-                    className={`w-12 h-12 rounded flex items-center justify-center transition-colors flex-shrink-0 border-0 ${
-                      selectedRouteStyle === 'dashed' && selectedLineBreakType === 'smooth-none'
-                        ? 'bg-gray-50'
-                        : ''
-                    }`}
-                    onClick={() => {
-                      setSelectedRouteStyle('dashed');
-                      setSelectedLineBreakType('smooth-none');
-                    }}
-                    title="Dashed Line - Smooth Curves, No Arrow"
-                  >
-                    <svg className="w-10 h-10" viewBox="0 0 50 50" fill="none">
-                      <path d="M10 35 L20 35 Q25 35 25 30 Q25 25 30 20" stroke="black" strokeWidth="4" strokeDasharray="5,5" fill="none"/>
                     </svg>
                   </button>
                 </div>
@@ -6200,6 +6468,39 @@ export default function Home() {
         </div>
       )}
 
+      {/* Route Color Picker */}
+      {showRouteColorPicker && routeColorPickerPosition && (
+        <div
+          className="fixed bg-white border border-gray-300 rounded-lg shadow-lg p-2 z-50"
+          style={{
+            left: `${routeColorPickerPosition.x}px`,
+            top: `${routeColorPickerPosition.y}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {colors.filter(c => c.name !== 'qb').map((colorOption) => (
+              <button
+                key={colorOption.name}
+                onClick={() => {
+                  if (selectedRouteForColor) {
+                    changeRouteColor(selectedRouteForColor, colorOption.name);
+                  }
+                }}
+                className={`w-10 h-10 rounded-full ${colorOption.color} border-2 border-gray-300 hover:scale-110 transition-transform flex items-center justify-center`}
+                title={colorOption.name}
+              >
+                {colorOption.label && (
+                  <span className="text-white text-xs font-bold">
+                    {colorOption.label}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Click outside to close color picker */}
       {showColorPicker && (
         <div
@@ -6207,6 +6508,17 @@ export default function Home() {
           onClick={() => {
             setShowColorPicker(false);
             setSelectedPlayerForColor(null);
+          }}
+        />
+      )}
+
+      {/* Click outside to close route color picker */}
+      {showRouteColorPicker && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => {
+            setShowRouteColorPicker(false);
+            setSelectedRouteForColor(null);
           }}
         />
       )}

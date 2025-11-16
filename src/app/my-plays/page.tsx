@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveUserData, UserData, SavedPlay, createShareableLink, signUp, logIn, signInWithGoogle } from '../firebase';
 import Header from '../components/Header';
+import { initializeLocalLLMPlays, filterLocalOnlyData, LOCAL_LLM_FOLDER_ID } from '../utils/localLLMPlays';
 
 interface Player {
   id: string;
@@ -160,6 +161,11 @@ export default function MyPlays() {
   const [shareUrl, setShareUrl] = useState<string>('');
   const [shareError, setShareError] = useState<string | null>(null);
 
+  // Initialize local LLM plays folder (only runs locally, never syncs to Firebase)
+  useEffect(() => {
+    initializeLocalLLMPlays();
+  }, []);
+
   // Load user data from Firestore when user logs in
   useEffect(() => {
     const loadData = async () => {
@@ -174,20 +180,39 @@ export default function MyPlays() {
             const firebasePlays = userData.savedPlays || [];
             const firebaseFolders = userData.folders || [];
             
-            // Update state with Firebase data
-            setSavedPlays(firebasePlays);
-            setFolders(firebaseFolders);
+            // Initialize local LLM plays AFTER loading Firebase data
+            // This ensures local plays are created and won't be overwritten
+            initializeLocalLLMPlays();
             
-            // Update localStorage to match Firebase (for offline support)
-            localStorage.setItem('savedPlays', JSON.stringify(firebasePlays));
-            localStorage.setItem('playFolders', JSON.stringify(firebaseFolders));
+            // Load local-only plays and folders from localStorage (after initialization)
+            const localPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]')
+              .filter((p: SavedPlay & { isLocalOnly?: boolean }) => p.isLocalOnly || p.folderId === LOCAL_LLM_FOLDER_ID);
+            const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]')
+              .filter((f: Folder & { isLocalOnly?: boolean }) => f.isLocalOnly || f.id === LOCAL_LLM_FOLDER_ID);
             
-            console.log('Loaded data from Firebase:', {
-              playsCount: firebasePlays.length,
-              foldersCount: firebaseFolders.length
+            // Merge: Firebase data + local-only data
+            const allPlays = [...firebasePlays, ...localPlays];
+            const allFolders = [...firebaseFolders, ...localFolders];
+            
+            // Update state with merged data
+            setSavedPlays(allPlays);
+            setFolders(allFolders);
+            
+            // Update localStorage with merged data (for offline support)
+            localStorage.setItem('savedPlays', JSON.stringify(allPlays));
+            localStorage.setItem('playFolders', JSON.stringify(allFolders));
+            
+            console.log('Loaded data from Firebase + local:', {
+              firebasePlaysCount: firebasePlays.length,
+              localPlaysCount: localPlays.length,
+              firebaseFoldersCount: firebaseFolders.length,
+              localFoldersCount: localFolders.length,
+              totalPlays: allPlays.length,
+              totalFolders: allFolders.length
             });
           } else {
             // No Firebase data, use localStorage as fallback
+            initializeLocalLLMPlays();
             const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
             const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
             setSavedPlays(plays);
@@ -196,6 +221,7 @@ export default function MyPlays() {
         } catch (error) {
           console.error('Error loading user data from Firebase:', error);
           // Fall back to localStorage on error
+          initializeLocalLLMPlays();
     const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
           const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
     setSavedPlays(plays);
@@ -203,10 +229,19 @@ export default function MyPlays() {
         }
       } else if (!user && !authLoading) {
         // Not logged in - load from localStorage only
+        // Make sure local LLM plays are initialized first
+        initializeLocalLLMPlays();
+        
         const plays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
     const savedFolders = JSON.parse(localStorage.getItem('playFolders') || '[]');
         setSavedPlays(plays);
     setFolders(savedFolders);
+        
+        console.log('Loaded data from localStorage (not logged in):', {
+          playsCount: plays.length,
+          foldersCount: savedFolders.length,
+          llmFolderExists: savedFolders.some((f: Folder & { id?: string }) => f.id === LOCAL_LLM_FOLDER_ID)
+        });
       }
     
     // Check for folder query parameter
@@ -425,13 +460,13 @@ export default function MyPlays() {
     setNewFolderInput('');
     setShowCreateFolderModal(false);
     
-    // Sync to Firebase if user is logged in
+    // Sync to Firebase if user is logged in (exclude local-only data)
     if (user) {
       try {
         const existingData = await loadUserData(user.uid);
         const userData: UserData = {
-          savedPlays: existingData?.savedPlays || savedPlays,
-          folders: updatedFolders,
+          savedPlays: filterLocalOnlyData(existingData?.savedPlays || filterLocalOnlyData(savedPlays)),
+          folders: filterLocalOnlyData(updatedFolders),
           updatedAt: new Date().toISOString()
         };
         await saveUserData(user.uid, userData);
@@ -489,8 +524,8 @@ export default function MyPlays() {
         }
         
         const userData: UserData = {
-          savedPlays: mergedPlays,
-          folders: folders,
+          savedPlays: filterLocalOnlyData(mergedPlays),
+          folders: filterLocalOnlyData(folders),
           updatedAt: new Date().toISOString()
         };
         
@@ -535,8 +570,8 @@ export default function MyPlays() {
         // Use the updated local data directly - don't merge with old Firebase data
         // This ensures the deletion is properly saved to Firebase
           const userData: UserData = {
-          savedPlays: updatedPlays, // Use the filtered plays directly
-          folders: folders, // Use current state folders
+          savedPlays: filterLocalOnlyData(updatedPlays), // Use the filtered plays directly
+          folders: filterLocalOnlyData(folders), // Use current state folders
             updatedAt: new Date().toISOString()
           };
           
@@ -616,8 +651,8 @@ export default function MyPlays() {
       try {
         const existingData = await loadUserData(user.uid);
         const userData: UserData = {
-          savedPlays: existingData?.savedPlays || savedPlays,
-          folders: updatedFolders,
+          savedPlays: filterLocalOnlyData(existingData?.savedPlays || filterLocalOnlyData(savedPlays)),
+          folders: filterLocalOnlyData(updatedFolders),
           updatedAt: new Date().toISOString()
         };
         await saveUserData(user.uid, userData);
@@ -655,8 +690,8 @@ export default function MyPlays() {
         // Use the updated local data directly - don't merge with old Firebase data
         // This ensures the deletion is properly saved to Firebase
         const userData: UserData = {
-          savedPlays: updatedPlays,
-          folders: updatedFolders,
+          savedPlays: filterLocalOnlyData(updatedPlays),
+          folders: filterLocalOnlyData(updatedFolders),
           updatedAt: new Date().toISOString()
         };
         await saveUserData(user.uid, userData);
@@ -1470,13 +1505,13 @@ export default function MyPlays() {
             </div>
 
             <div className="space-y-3">
-              <button
+            <button
                 type="submit"
                 disabled={loginLoading || googleLoginLoading}
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+            >
                 {loginLoading ? 'Please wait...' : isSignUp ? 'Sign up' : 'Sign in'}
-              </button>
+            </button>
               
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -1519,7 +1554,7 @@ export default function MyPlays() {
                   </>
                 )}
               </button>
-            </div>
+        </div>
           </form>
           </div>
         </div>
@@ -1581,6 +1616,16 @@ export default function MyPlays() {
           New Play
         </button>
 
+        {/* Export Plays Button */}
+        <Link
+          href="/admin/export"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Export Plays
+        </Link>
 
         {/* View Toggle */}
         <div className="flex items-center gap-1 ml-auto border border-gray-200 rounded-lg p-1">
