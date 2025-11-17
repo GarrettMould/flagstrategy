@@ -3247,14 +3247,34 @@ export default function Home() {
         const updatedPlay: SavedPlay = {
           ...savedPlays[playIndex],
           name: playName.trim(),
-          folderId: selectedFolder || undefined,
+          ...(selectedFolder ? { folderId: selectedFolder } : {}), // Only include if not empty
           players: players,
-          routes: routes,
+          routes: routes.map(route => {
+            const routeObj: any = {
+              id: route.id,
+              points: route.points,
+              style: route.style,
+              lineBreakType: route.lineBreakType
+            };
+            // Only include color if it exists and is not undefined
+            if (route.color) {
+              routeObj.color = route.color;
+            }
+            // Only include endpointType if it exists and is not undefined
+            if (route.endpointType !== undefined) {
+              routeObj.endpointType = route.endpointType;
+            } else {
+              // Set default endpointType if not set
+              routeObj.endpointType = route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none';
+            }
+            return routeObj;
+          }),
           textBoxes: textBoxes,
           circles: circles,
           footballs: footballs,
           playerRouteAssociations: Object.fromEntries(playerRouteAssociations), // Convert Map to object for Firestore
-          sharedToCommunity: sharedToCommunity || undefined,
+          ...(canvasBackground ? { canvasBackground: canvasBackground } : {}), // Only include if set
+          ...(sharedToCommunity ? { sharedToCommunity: true } : {}), // Only include if true
           updatedAt: new Date().toISOString()
         };
         // Only include playNotes if it has content, otherwise remove it
@@ -3280,13 +3300,33 @@ export default function Home() {
       const newPlay: SavedPlay = {
         id: Date.now().toString(),
         name: playName.trim(),
-        folderId: selectedFolder || undefined,
+        ...(selectedFolder ? { folderId: selectedFolder } : {}), // Only include if not empty
         players: players,
-        routes: routes,
+        routes: routes.map(route => {
+          const routeObj: any = {
+            id: route.id,
+            points: route.points,
+            style: route.style,
+            lineBreakType: route.lineBreakType
+          };
+          // Only include color if it exists and is not undefined
+          if (route.color) {
+            routeObj.color = route.color;
+          }
+          // Only include endpointType if it exists and is not undefined
+          if (route.endpointType !== undefined) {
+            routeObj.endpointType = route.endpointType;
+          } else {
+            // Set default endpointType if not set
+            routeObj.endpointType = route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none';
+          }
+          return routeObj;
+        }),
         textBoxes: textBoxes,
         circles: circles,
         footballs: footballs,
         playerRouteAssociations: Object.fromEntries(playerRouteAssociations), // Convert Map to object for Firestore
+        ...(canvasBackground ? { canvasBackground: canvasBackground } : {}), // Only include if set
         ...(playNotes.trim() ? { playNotes: playNotes.trim() } : {}),
         ...(sharedToCommunity ? { sharedToCommunity: true } : {}),
         createdAt: new Date().toISOString()

@@ -599,9 +599,10 @@ export default function Home() {
     const editingPlayData = localStorage.getItem('editingPlay');
     if (editingPlayData) {
       const play = JSON.parse(editingPlayData);
-      // Migrate old showArrow boolean to endpointType
+      // Migrate old showArrow boolean to endpointType and ensure all routes have color and endpointType
       if (play.routes) {
         play.routes = play.routes.map((route: Route & { showArrow?: boolean }) => {
+          // Migrate showArrow to endpointType
           if (route.showArrow !== undefined && route.endpointType === undefined) {
             // Migrate: showArrow true -> 'arrow', showArrow false -> 'none'
             route.endpointType = route.showArrow ? 'arrow' : 'none';
@@ -609,6 +610,14 @@ export default function Home() {
           } else if (route.endpointType === undefined) {
             // Default to arrow if route type supports it
             route.endpointType = route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none';
+          }
+          // Ensure all routes have a color property
+          if (!route.color) {
+            route.color = 'black'; // Default to black
+          }
+          // Ensure dashed routes are always black
+          if (route.style === 'dashed') {
+            route.color = 'black';
           }
           return route;
         });
@@ -626,6 +635,7 @@ export default function Home() {
       setSelectedFolder(play.folderId || '');
       setSharedToCommunity(play.sharedToCommunity || false);
       setEditingPlayId(play.id);
+      setCanvasBackground(play.canvasBackground || 'field'); // Restore canvas background, default to 'field'
       setMode('select');
       
       // Rebuild player-route associations for loaded play
@@ -924,27 +934,52 @@ export default function Home() {
           }
         } else {
           // Rigid drawing - use the old pause-based system
-          const now = Date.now();
-          const timeSinceLastMove = now - lastMouseMoveTime;
-          
-          if (newRoute.length === 1) {
-            // Add second point if this is the first move
-            newRoute.push({ x, y });
-          } else if (timeSinceLastMove > pauseThreshold) {
-            // Pause detected - add a pivot point and start a new segment
-            newRoute.push({ x, y }); // Add the current position as a pivot point
-            newRoute.push({ x, y }); // Add it again as the start of the new segment
-            console.log('Pivot point added at pause');
+          // For dashed lines, use distance-based point addition to capture exact path
+          if (selectedRouteStyle === 'dashed') {
+            if (newRoute.length === 1) {
+              newRoute.push({ x, y });
+              setLastPoint({ x, y });
+            } else {
+              // Only add point if moved at least 3 pixels from last point (more frequent than smooth)
+              if (lastPoint) {
+                const distance = Math.sqrt(
+                  Math.pow(x - lastPoint.x, 2) + Math.pow(y - lastPoint.y, 2)
+                );
+                
+                if (distance >= 3) {
+                  newRoute.push({ x, y });
+                  setLastPoint({ x, y });
+                } else {
+                  // Update the last point to current position for exact tracking
+                  newRoute[newRoute.length - 1] = { x, y };
+                  setLastPoint({ x, y });
+                }
+              }
+            }
           } else {
-            // Normal movement - update the last point
-        newRoute[newRoute.length - 1] = { x, y };
+            // Solid rigid lines use pause-based system
+            const now = Date.now();
+            const timeSinceLastMove = now - lastMouseMoveTime;
+            
+            if (newRoute.length === 1) {
+              // Add second point if this is the first move
+              newRoute.push({ x, y });
+            } else if (timeSinceLastMove > pauseThreshold) {
+              // Pause detected - add a pivot point and start a new segment
+              newRoute.push({ x, y }); // Add the current position as a pivot point
+              newRoute.push({ x, y }); // Add it again as the start of the new segment
+              console.log('Pivot point added at pause');
+            } else {
+              // Normal movement - update the last point
+          newRoute[newRoute.length - 1] = { x, y };
+            }
           }
         }
         return newRoute;
       });
       
-      // Update the last mouse move time for rigid drawing
-      if (selectedLineBreakType !== 'smooth' && selectedLineBreakType !== 'smooth-none') {
+      // Update the last mouse move time for rigid drawing (but not for dashed lines which use distance-based system)
+      if (selectedLineBreakType !== 'smooth' && selectedLineBreakType !== 'smooth-none' && selectedRouteStyle !== 'dashed') {
       setLastMouseMoveTime(Date.now());
       }
     }
@@ -1043,9 +1078,9 @@ export default function Home() {
       
       console.log('Finishing route with points:', currentRoute, nearbyPlayer ? `near player: ${nearbyPlayer.id}` : 'no nearby player');
       
-      // Apply angle snapping to 'none' type routes (straight lines)
+      // Apply angle snapping to 'none' type routes (straight lines) - but NOT for dashed lines
       let finalPoints = currentRoute;
-      if (selectedLineBreakType === 'none' && currentRoute.length === 2) {
+      if (selectedLineBreakType === 'none' && currentRoute.length === 2 && selectedRouteStyle !== 'dashed') {
         const startPoint = currentRoute[0];
         const endPoint = currentRoute[1];
         const dx = endPoint.x - startPoint.x;
@@ -1063,18 +1098,30 @@ export default function Home() {
       
       // Finish the route with smoothing applied
       // Apply smoothing to 'smooth' and 'smooth-none' types
-      const smoothedPoints = (selectedLineBreakType === 'smooth' || selectedLineBreakType === 'smooth-none') ? smoothPoints(finalPoints) : finalPoints;
+      // For dashed lines, use exact points without any adjustments
+      const smoothedPoints = (selectedRouteStyle === 'dashed') 
+        ? finalPoints  // Dashed lines: use exact points as drawn
+        : (selectedLineBreakType === 'smooth' || selectedLineBreakType === 'smooth-none') 
+          ? smoothPoints(finalPoints) 
+          : finalPoints;
       const newRoute: Route = {
         id: Date.now().toString(),
           points: smoothedPoints,
         style: selectedRouteStyle,
           lineBreakType: selectedLineBreakType || 'rigid',
-        color: 'black',
+        color: selectedRouteStyle === 'dashed' ? 'black' : 'black', // Dashed lines are always black
         endpointType: selectedLineBreakType !== 'none' && selectedLineBreakType !== 'smooth-none' ? 'arrow' : 'none' // Default to arrow if route type supports it
       };
+      
+      // Ensure dashed routes are always black (explicit safeguard)
+      if (newRoute.style === 'dashed') {
+        newRoute.color = 'black';
+      }
+      
       setRoutes([...routes, newRoute]);
       
       // Associate this route with the nearest player (if any)
+      // Note: Even if associated, dashed routes will render as black
       if (nearbyPlayer) {
         setPlayerRouteAssociations(prev => {
           const newMap = new Map(prev);
@@ -1124,7 +1171,8 @@ export default function Home() {
       if (route.id === routeId) {
         // Toggle between dashed and solid
         const newStyle = route.style === 'dashed' ? 'solid' : 'dashed';
-        return { ...route, style: newStyle };
+        // If toggling to dashed, ensure color is black
+        return { ...route, style: newStyle, color: newStyle === 'dashed' ? 'black' : route.color };
       }
       return route;
     }));
@@ -1993,6 +2041,12 @@ export default function Home() {
   };
 
   const changeRouteColor = (routeId: string, newColor: string) => {
+    // Don't allow color changes for dashed lines - they must always be black
+    const route = routes.find(r => r.id === routeId);
+    if (route && route.style === 'dashed') {
+      return; // Dashed lines are always black, don't allow color changes
+    }
+    
     // Map color name to hex value
     const colorMap: { [key: string]: string } = {
       'blue': '#3b82f6',
@@ -3348,14 +3402,34 @@ export default function Home() {
         const updatedPlay: SavedPlay = {
           ...savedPlays[playIndex],
           name: playName.trim(),
-          folderId: selectedFolder || undefined,
+          ...(selectedFolder ? { folderId: selectedFolder } : {}), // Only include if not empty
           players: players,
-          routes: routes,
+          routes: routes.map(route => {
+            const routeObj: any = {
+              id: route.id,
+              points: route.points,
+              style: route.style,
+              lineBreakType: route.lineBreakType
+            };
+            // Only include color if it exists and is not undefined
+            if (route.color) {
+              routeObj.color = route.color;
+            }
+            // Only include endpointType if it exists and is not undefined
+            if (route.endpointType !== undefined) {
+              routeObj.endpointType = route.endpointType;
+            } else {
+              // Set default endpointType if not set
+              routeObj.endpointType = route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none';
+            }
+            return routeObj;
+          }),
           textBoxes: textBoxes,
           circles: circles,
           footballs: footballs,
           playerRouteAssociations: Object.fromEntries(playerRouteAssociations), // Convert Map to object for Firestore
-          sharedToCommunity: sharedToCommunity || undefined,
+          ...(canvasBackground ? { canvasBackground: canvasBackground } : {}), // Only include if set
+          ...(sharedToCommunity ? { sharedToCommunity: true } : {}), // Only include if true
           updatedAt: new Date().toISOString()
         };
         // Only include playNotes if it has content, otherwise remove it
@@ -3381,13 +3455,33 @@ export default function Home() {
       const newPlay: SavedPlay = {
         id: Date.now().toString(),
         name: playName.trim(),
-        folderId: selectedFolder || undefined,
+        ...(selectedFolder ? { folderId: selectedFolder } : {}), // Only include if not empty
         players: players,
-        routes: routes,
+        routes: routes.map(route => {
+          const routeObj: any = {
+            id: route.id,
+            points: route.points,
+            style: route.style,
+            lineBreakType: route.lineBreakType
+          };
+          // Only include color if it exists and is not undefined
+          if (route.color) {
+            routeObj.color = route.color;
+          }
+          // Only include endpointType if it exists and is not undefined
+          if (route.endpointType !== undefined) {
+            routeObj.endpointType = route.endpointType;
+          } else {
+            // Set default endpointType if not set
+            routeObj.endpointType = route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none';
+          }
+          return routeObj;
+        }),
         textBoxes: textBoxes,
         circles: circles,
         footballs: footballs,
         playerRouteAssociations: Object.fromEntries(playerRouteAssociations), // Convert Map to object for Firestore
+        ...(canvasBackground ? { canvasBackground: canvasBackground } : {}), // Only include if set
         ...(playNotes.trim() ? { playNotes: playNotes.trim() } : {}),
         ...(sharedToCommunity ? { sharedToCommunity: true } : {}),
         createdAt: new Date().toISOString()
@@ -4747,23 +4841,33 @@ export default function Home() {
             if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
             
             // Find the associated player for this route to get its color
+            // Dashed lines are ALWAYS black, regardless of player color or stored color
             let routeColor = 'black'; // Default color
             let routeColorHex = '#000000';
-            for (const [playerId, routeIds] of playerRouteAssociations.entries()) {
-              if (routeIds.includes(route.id)) {
-                const player = players.find(p => p.id === playerId);
-                if (player) {
-                  // Map player color to hex value
-                  const colorMap: { [key: string]: string } = {
-                    'blue': '#3b82f6',
-                    'red': '#ef4444',
-                    'green': '#22c55e',
-                    'yellow': '#eab308',
-                    'qb': '#000000'
-                  };
-                  routeColor = player.color;
-                  routeColorHex = colorMap[player.color] || '#000000';
-                  break;
+            
+            // Force black for dashed lines - don't even check player associations
+            // This check MUST come first and override everything else
+            if (route.style === 'dashed') {
+              routeColor = 'black';
+              routeColorHex = '#000000';
+            } else {
+              // Only use player color for solid lines
+              for (const [playerId, routeIds] of playerRouteAssociations.entries()) {
+                if (routeIds.includes(route.id)) {
+                  const player = players.find(p => p.id === playerId);
+                  if (player) {
+                    // Map player color to hex value
+                    const colorMap: { [key: string]: string } = {
+                      'blue': '#3b82f6',
+                      'red': '#ef4444',
+                      'green': '#22c55e',
+                      'yellow': '#eab308',
+                      'qb': '#000000'
+                    };
+                    routeColor = player.color;
+                    routeColorHex = colorMap[player.color] || '#000000';
+                    break;
+                  }
                 }
               }
             }
@@ -4844,7 +4948,7 @@ export default function Home() {
                       }
                     })()}
                     fill="none"
-                    stroke={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
+                    stroke={route.style === 'dashed' ? '#000000' : (isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex)}
                     strokeWidth={isSelected ? "6" : selectedRoute === route.id ? "7" : "5"}
                     strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
                   />
@@ -4884,7 +4988,7 @@ export default function Home() {
                   }
                 })()}
                   fill="none"
-                  stroke={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
+                  stroke={route.style === 'dashed' ? '#000000' : (isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex)}
                   strokeWidth={isSelected ? "6" : selectedRoute === route.id ? "7" : "5"}
                 strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
               />
@@ -4893,7 +4997,7 @@ export default function Home() {
                 {shouldShowArrow && (
                   <polygon
                     points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - 0.6) * 12},${arrowY - Math.sin(angle - 0.6) * 12} ${arrowX - Math.cos(angle + 0.6) * 12},${arrowY - Math.sin(angle + 0.6) * 12}`}
-                    fill={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
+                    fill={route.style === 'dashed' ? '#000000' : (isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex)}
                   />
                 )}
                 {/* Dot at the end - only for routes that should show dots */}
@@ -4902,7 +5006,7 @@ export default function Home() {
                     cx={dotX}
                     cy={dotY}
                     r="8"
-                    fill={isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex}
+                    fill={route.style === 'dashed' ? '#000000' : (isSelected ? "#3b82f6" : selectedRoute === route.id ? "#ef4444" : routeColorHex)}
                   />
                 )}
             </svg>
@@ -5020,8 +5124,9 @@ export default function Home() {
           {/* Current Route Being Drawn */}
           {currentRoute.length > 1 && (() => {
             // Find the nearest player to the start of the route to get its color
+            // Dashed lines are always black
             let currentRouteColor = '#000000'; // Default black
-            if (currentRoute.length > 0) {
+            if (selectedRouteStyle !== 'dashed' && currentRoute.length > 0) {
               const routeStart = currentRoute[0];
               let nearbyPlayer: Player | null = null;
               let closestDistance = Infinity;

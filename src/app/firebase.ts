@@ -19,6 +19,8 @@ export interface SavedPlay {
     points: Array<{ x: number; y: number }>;
     style: 'solid' | 'dashed';
     lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
+    color?: string; // Route color (dashed lines are always black)
+    endpointType?: 'arrow' | 'dot' | 'none'; // Endpoint style: arrow, dot, or none
   }>;
   textBoxes?: Array<{
     id: string;
@@ -44,6 +46,7 @@ export interface SavedPlay {
   playerRouteAssociations?: [string, string[]][] | { [playerId: string]: string[] }; // Array format (legacy) or object format (Firestore)
   playNotes?: string;
   sharedToCommunity?: boolean; // Whether this play is shared to the Community Plays library
+  canvasBackground?: 'field' | 'goaline' | 'blank'; // Canvas background style
   createdAt?: string;
   updatedAt?: string;
 }
@@ -417,7 +420,11 @@ function sanitizeForFirestore(data: any): any {
     const result: { [key: string]: any } = {};
     for (const key in data) {
       if (data.hasOwnProperty(key)) {
-        result[key] = sanitizeForFirestore(data[key]);
+        const value = data[key];
+        // Skip undefined values - Firestore doesn't support them
+        if (value !== undefined) {
+          result[key] = sanitizeForFirestore(value);
+        }
       }
     }
     return result;

@@ -21,7 +21,8 @@ interface Route {
   points: { x: number; y: number }[];
   style: 'solid' | 'dashed';
   lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
-  color: string;
+  color?: string; // Route color (dashed lines are always black)
+  endpointType?: 'arrow' | 'dot' | 'none'; // Endpoint style: arrow, dot, or none
 }
 
 interface Folder {
@@ -56,10 +57,10 @@ interface Football {
 }
 
 const colors = [
-  { name: 'blue', color: 'bg-blue-500', label: '' },
-  { name: 'red', color: 'bg-red-500', label: '' },
-  { name: 'green', color: 'bg-green-500', label: '' },
-  { name: 'yellow', color: 'bg-yellow-500', label: '' },
+  { name: 'blue', color: 'bg-blue-500', label: 'X' },
+  { name: 'red', color: 'bg-red-500', label: 'Z' },
+  { name: 'green', color: 'bg-green-500', label: 'Y' },
+  { name: 'yellow', color: 'bg-yellow-500', label: 'C' },
   { name: 'qb', color: 'bg-black', label: 'QB' },
 ];
 
@@ -1125,6 +1126,68 @@ export default function MyPlays() {
                       {play.routes?.map((route) => {
                         if (!route || !route.points || !Array.isArray(route.points) || route.points.length < 2) return null;
                         
+                        // Get route color - dashed lines are always black, otherwise use associated player's color
+                        const getRouteColor = () => {
+                          if (route.style === 'dashed') {
+                            return '#000000';
+                          }
+                          
+                          // Find the player associated with this route
+                          let associatedPlayer: Player | null = null;
+                          if (play.playerRouteAssociations) {
+                            // Handle both object format (Firestore) and array format (legacy)
+                            let associations: { [playerId: string]: string[] } = {};
+                            if (Array.isArray(play.playerRouteAssociations)) {
+                              // Legacy format: array of [key, value] tuples
+                              play.playerRouteAssociations.forEach(([playerId, routeIds]: [string, string[]]) => {
+                                associations[playerId] = routeIds;
+                              });
+                            } else {
+                              // New format: object { [playerId]: [routeIds] }
+                              associations = play.playerRouteAssociations;
+                            }
+                            
+                            // Find which player this route belongs to
+                            for (const [playerId, routeIds] of Object.entries(associations)) {
+                              if (routeIds.includes(route.id)) {
+                                associatedPlayer = play.players.find(p => p.id === playerId) || null;
+                                break;
+                              }
+                            }
+                          }
+                          
+                          // If we found an associated player, use their color
+                          if (associatedPlayer) {
+                            const colorMap: { [key: string]: string } = {
+                              'blue': '#3b82f6',
+                              'red': '#ef4444',
+                              'green': '#22c55e',
+                              'yellow': '#eab308',
+                              'qb': '#000000',
+                              'black': '#000000'
+                            };
+                            return colorMap[associatedPlayer.color] || '#000000';
+                          }
+                          
+                          // Fallback: use route.color if available
+                          if (route.color) {
+                            if (route.color.startsWith('#')) {
+                              return route.color;
+                            }
+                            const colorMap: { [key: string]: string } = {
+                              'blue': '#3b82f6',
+                              'red': '#ef4444',
+                              'green': '#22c55e',
+                              'yellow': '#eab308',
+                              'black': '#000000'
+                            };
+                            return colorMap[route.color] || '#000000';
+                          }
+                          
+                          return '#000000'; // Default to black
+                        };
+                        const routeColor = getRouteColor();
+                        
           // Scale and offset route points
                         const scaledPoints = route.points.map(point => ({
             x: point.x * scale + offsetX,
@@ -1155,9 +1218,20 @@ export default function MyPlays() {
                         const arrowX = lastPoint.x + Math.cos(angle) * arrowLength;
                         const arrowY = lastPoint.y + Math.sin(angle) * arrowLength;
           
-          // Shorten the line before arrow
+          // Determine endpoint type
+          const endpointType = route.endpointType || (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' ? 'arrow' : 'none');
+          const shouldShowArrow = endpointType === 'arrow';
+          const shouldShowDot = endpointType === 'dot';
+          const shouldShortenLine = shouldShowArrow || shouldShowDot;
+          
+          // Calculate dot position
+          const dotLength = 10 * scale;
+          const dotX = lastPoint.x + Math.cos(angle) * dotLength;
+          const dotY = lastPoint.y + Math.sin(angle) * dotLength;
+          
+          // Shorten the line before arrow or dot
           let routePoints = scaledPoints;
-          if (route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' && scaledPoints.length >= 2) {
+          if (shouldShortenLine && scaledPoints.length >= 2) {
             const lastP = scaledPoints[scaledPoints.length - 1];
             const secondLastP = scaledPoints[scaledPoints.length - 2];
             
@@ -1165,8 +1239,8 @@ export default function MyPlays() {
             const dy = lastP.y - secondLastP.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             
-            const arrowGap = 6 * scale;
-            const stopDistance = Math.max(0, distance - arrowGap);
+            const gap = 6 * scale; // Gap before arrow/dot
+            const stopDistance = Math.max(0, distance - gap);
             const stopRatio = stopDistance / distance;
             
             const stopX = secondLastP.x + dx * stopRatio;
@@ -1185,8 +1259,8 @@ export default function MyPlays() {
               {(route.lineBreakType === 'smooth' || route.lineBreakType === 'smooth-none') ? (
                               <path
                   d={(() => {
-                    // If there's an arrow ('smooth' type has arrows, 'smooth-none' doesn't), stop the line slightly before the last point
-                    if (route.lineBreakType === 'smooth' && route.points.length >= 2) {
+                    // If there's an arrow or dot, stop the line slightly before the last point
+                    if (shouldShortenLine && route.points.length >= 2) {
                       const lastP = route.points[route.points.length - 1];
                       const secondLastP = route.points[route.points.length - 2];
                       
@@ -1194,8 +1268,8 @@ export default function MyPlays() {
                       const dy = lastP.y - secondLastP.y;
                       const distance = Math.sqrt(dx * dx + dy * dy);
                       
-                      const arrowGap = 6;
-                      const stopDistance = Math.max(0, distance - arrowGap);
+                      const gap = 6;
+                      const stopDistance = Math.max(0, distance - gap);
                       const stopRatio = stopDistance / distance;
                       
                       const stopX = secondLastP.x + dx * stopRatio;
@@ -1218,7 +1292,7 @@ export default function MyPlays() {
                     }
                   })()}
                                 fill="none"
-                                stroke="black"
+                                stroke={routeColor}
                   strokeWidth={Math.max(2, 3 * scale)}
                   strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
                               />
@@ -1226,16 +1300,25 @@ export default function MyPlays() {
                               <polyline
                   points={routePoints.map(p => `${p.x},${p.y}`).join(' ')}
                                 fill="none"
-                                stroke="black"
+                                stroke={routeColor}
                   strokeWidth={Math.max(2, 3 * scale)}
                   strokeDasharray={route.style === 'dashed' ? '8,4' : 'none'}
                               />
                             )}
               {/* Arrow at the end */}
-              {route.lineBreakType !== 'none' && route.lineBreakType !== 'smooth-none' && (
+              {shouldShowArrow && (
                               <polygon
                   points={`${lastPoint.x},${lastPoint.y} ${arrowX - Math.cos(angle - 0.6) * 12 * scale},${arrowY - Math.sin(angle - 0.6) * 12 * scale} ${arrowX - Math.cos(angle + 0.6) * 12 * scale},${arrowY - Math.sin(angle + 0.6) * 12 * scale}`}
-                                fill="black"
+                                fill={routeColor}
+                              />
+                            )}
+              {/* Dot at the end */}
+              {shouldShowDot && (
+                              <circle
+                  cx={dotX}
+                  cy={dotY}
+                  r={8 * scale}
+                  fill={routeColor}
                               />
                             )}
                           </svg>
@@ -1246,24 +1329,52 @@ export default function MyPlays() {
                       {play.players.map((player) => {
                         const colorOption = colors.find(c => c.name === player.color);
                         const isQB = player.color === 'qb';
+                        const isC = player.color === 'yellow' && player.type === 'offense';
+                        
+                        // Map player colors to border colors
+                        const borderColorMap: { [key: string]: string } = {
+                          'blue': 'border-blue-500',
+                          'red': 'border-red-500',
+                          'green': 'border-green-500',
+                          'yellow': 'border-yellow-500',
+                          'qb': 'border-black',
+                        };
+                        // Map player colors to background colors (lighter shades)
+                        const bgColorMap: { [key: string]: string } = {
+                          'blue': 'bg-blue-100',
+                          'red': 'bg-red-100',
+                          'green': 'bg-green-100',
+                          'yellow': 'bg-yellow-100',
+                          'qb': 'bg-gray-100',
+                        };
+                        const borderColor = borderColorMap[player.color] || 'border-gray-500';
+                        const bgColor = bgColorMap[player.color] || 'bg-gray-100';
+                        
                         return (
                           <div
                             key={player.id}
-              className={`absolute rounded-full ${colorOption?.color || 'bg-gray-500'} border-2 border-white transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center`}
+              className={`absolute w-6 h-6 ${isC ? 'rounded' : 'rounded-full'} ${bgColor} border-[3px] ${borderColor} transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center`}
                             style={{
                 left: player.x * scale + offsetX,
                 top: player.y * scale + offsetY,
-                width: `${20 * scale}px`,
-                height: `${20 * scale}px`,
-                minWidth: '20px',
-                minHeight: '20px',
+                width: `${24 * scale}px`,
+                height: `${24 * scale}px`,
+                minWidth: '24px',
+                minHeight: '24px',
                               zIndex: 3,
                             }}
                           >
-                            {colorOption?.label && !isQB && (
+                            {colorOption?.label && (
                 <span 
-                  className="text-white font-bold"
-                  style={{ fontSize: `${Math.max(10, 12 * scale)}px` }}
+                  className={`text-[10px] font-bold leading-none ${
+                    player.color === 'blue' ? 'text-blue-500' :
+                    player.color === 'red' ? 'text-red-500' :
+                    player.color === 'green' ? 'text-green-500' :
+                    player.color === 'yellow' ? 'text-yellow-500' :
+                    player.color === 'qb' ? 'text-black' :
+                    'text-gray-500'
+                  }`}
+                  style={{ fontSize: `${Math.max(8, 10 * scale)}px` }}
                 >
                                 {colorOption.label}
                               </span>
