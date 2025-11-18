@@ -166,6 +166,8 @@ export default function Home() {
   const [selectedRouteForColor, setSelectedRouteForColor] = useState<string | null>(null);
   const [routeColorPickerPosition, setRouteColorPickerPosition] = useState<{ x: number; y: number } | null>(null);
   const [routeLongPressTimer, setRouteLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [routeLineLongPressTimer, setRouteLineLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [routeLineLongPressOccurred, setRouteLineLongPressOccurred] = useState<boolean>(false);
   
   // Coverage pattern interface
   interface CoveragePattern {
@@ -963,12 +965,27 @@ export default function Home() {
         // Finish the route with smoothing applied
       // Apply smoothing to 'smooth' and 'smooth-none' types
       const smoothedPoints = (selectedLineBreakType === 'smooth' || selectedLineBreakType === 'smooth-none') ? smoothPoints(currentRoute) : currentRoute;
+      
+      // Determine route color based on associated player
+      let routeColor = 'black'; // Default fallback
+      if (nearbyPlayer) {
+        // Map player color to hex value
+        const colorMap: { [key: string]: string } = {
+          'blue': '#3b82f6',
+          'red': '#ef4444',
+          'green': '#22c55e',
+          'yellow': '#eab308',
+          'qb': '#000000'
+        };
+        routeColor = colorMap[nearbyPlayer.color] || '#000000';
+      }
+      
       const newRoute: Route = {
         id: Date.now().toString(),
           points: smoothedPoints,
         style: selectedRouteStyle,
           lineBreakType: selectedLineBreakType || 'rigid',
-        color: 'black',
+        color: routeColor,
         endpointType: selectedLineBreakType !== 'none' && selectedLineBreakType !== 'smooth-none' ? 'arrow' : 'none' // Default to arrow if route type supports it
       };
       setRoutes([...routes, newRoute]);
@@ -1017,6 +1034,7 @@ export default function Home() {
       'red': '#ef4444',
       'green': '#22c55e',
       'yellow': '#eab308',
+      'black': '#000000',
       'qb': '#000000'
     };
     const colorHex = colorMap[newColor] || newColor;
@@ -4762,11 +4780,12 @@ export default function Home() {
             // Find the associated player for this route to get its color
             let routeColor = 'black'; // Default color
             let routeColorHex = '#000000';
+            
+            // First, get the player's color (if route is associated with a player)
             for (const [playerId, routeIds] of playerRouteAssociations.entries()) {
               if (routeIds.includes(route.id)) {
                 const player = players.find(p => p.id === playerId);
                 if (player) {
-                  // Map player color to hex value
                   const colorMap: { [key: string]: string } = {
                     'blue': '#3b82f6',
                     'red': '#ef4444',
@@ -4780,6 +4799,13 @@ export default function Home() {
                 }
               }
             }
+            
+            // If route has a color set and it's different from the player's color, use it
+            // (This means the user explicitly changed the color, including to black)
+            if (route.color && route.color !== routeColorHex) {
+              routeColorHex = route.color;
+            }
+            // Otherwise, use the player's color (already set above, or black if no player)
             
             // Calculate arrow direction from the last significant movement segment
             // Look back to find a meaningful direction (skip very short segments)
@@ -4825,7 +4851,70 @@ export default function Home() {
                   <path
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleRouteStyle(route.id);
+                      // Only toggle style if long press didn't occur
+                      if (!routeLineLongPressOccurred) {
+                        toggleRouteStyle(route.id);
+                      }
+                      setRouteLineLongPressOccurred(false);
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      setRouteLineLongPressOccurred(false);
+                      // Capture coordinates at the time of mouse down
+                      const clientX = e.clientX;
+                      const clientY = e.clientY;
+                      // Start long-press timer
+                      const timer = setTimeout(() => {
+                        setRouteColorPickerPosition({
+                          x: clientX,
+                          y: clientY
+                        });
+                        setSelectedRouteForColor(route.id);
+                        setShowRouteColorPicker(true);
+                        setRouteLineLongPressOccurred(true);
+                        setRouteLineLongPressTimer(null);
+                      }, 500); // 500ms long press
+                      setRouteLineLongPressTimer(timer);
+                    }}
+                    onMouseUp={(e) => {
+                      e.stopPropagation();
+                      // Clear long-press timer if mouse is released
+                      if (routeLineLongPressTimer) {
+                        clearTimeout(routeLineLongPressTimer);
+                        setRouteLineLongPressTimer(null);
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      // Clear timer if mouse leaves
+                      if (routeLineLongPressTimer) {
+                        clearTimeout(routeLineLongPressTimer);
+                        setRouteLineLongPressTimer(null);
+                      }
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      setRouteLineLongPressOccurred(false);
+                      const touch = e.touches[0];
+                      // Start long-press timer for touch
+                      const timer = setTimeout(() => {
+                        setRouteColorPickerPosition({
+                          x: touch.clientX,
+                          y: touch.clientY
+                        });
+                        setSelectedRouteForColor(route.id);
+                        setShowRouteColorPicker(true);
+                        setRouteLineLongPressOccurred(true);
+                        setRouteLineLongPressTimer(null);
+                      }, 500); // 500ms long press
+                      setRouteLineLongPressTimer(timer);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.stopPropagation();
+                      // Clear long-press timer if touch ends
+                      if (routeLineLongPressTimer) {
+                        clearTimeout(routeLineLongPressTimer);
+                        setRouteLineLongPressTimer(null);
+                      }
                     }}
                     style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
                     d={(() => {
@@ -4865,7 +4954,70 @@ export default function Home() {
               <polyline
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleRouteStyle(route.id);
+                  // Only toggle style if long press didn't occur
+                  if (!routeLineLongPressOccurred) {
+                    toggleRouteStyle(route.id);
+                  }
+                  setRouteLineLongPressOccurred(false);
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setRouteLineLongPressOccurred(false);
+                  // Capture coordinates at the time of mouse down
+                  const clientX = e.clientX;
+                  const clientY = e.clientY;
+                  // Start long-press timer
+                  const timer = setTimeout(() => {
+                    setRouteColorPickerPosition({
+                      x: clientX,
+                      y: clientY
+                    });
+                    setSelectedRouteForColor(route.id);
+                    setShowRouteColorPicker(true);
+                    setRouteLineLongPressOccurred(true);
+                    setRouteLineLongPressTimer(null);
+                  }, 500); // 500ms long press
+                  setRouteLineLongPressTimer(timer);
+                }}
+                onMouseUp={(e) => {
+                  e.stopPropagation();
+                  // Clear long-press timer if mouse is released
+                  if (routeLineLongPressTimer) {
+                    clearTimeout(routeLineLongPressTimer);
+                    setRouteLineLongPressTimer(null);
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  // Clear timer if mouse leaves
+                  if (routeLineLongPressTimer) {
+                    clearTimeout(routeLineLongPressTimer);
+                    setRouteLineLongPressTimer(null);
+                  }
+                }}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  setRouteLineLongPressOccurred(false);
+                  const touch = e.touches[0];
+                  // Start long-press timer for touch
+                  const timer = setTimeout(() => {
+                    setRouteColorPickerPosition({
+                      x: touch.clientX,
+                      y: touch.clientY
+                    });
+                    setSelectedRouteForColor(route.id);
+                    setShowRouteColorPicker(true);
+                    setRouteLineLongPressOccurred(true);
+                    setRouteLineLongPressTimer(null);
+                  }, 500); // 500ms long press
+                  setRouteLineLongPressTimer(timer);
+                }}
+                onTouchEnd={(e) => {
+                  e.stopPropagation();
+                  // Clear long-press timer if touch ends
+                  if (routeLineLongPressTimer) {
+                    clearTimeout(routeLineLongPressTimer);
+                    setRouteLineLongPressTimer(null);
+                  }
                 }}
                 style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
                 points={(() => {
@@ -6875,26 +7027,32 @@ export default function Home() {
             top: `${routeColorPickerPosition.y}px`,
             transform: 'translate(-50%, -100%)'
           }}
+          onClick={(e) => e.stopPropagation()}
         >
           <div className="grid grid-cols-3 gap-2">
             {colors.filter(c => c.name !== 'qb').map((colorOption) => (
               <button
                 key={colorOption.name}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (selectedRouteForColor) {
                     changeRouteColor(selectedRouteForColor, colorOption.name);
                   }
                 }}
-                className={`w-10 h-10 rounded-full ${colorOption.color} border-2 border-gray-300 hover:scale-110 transition-transform flex items-center justify-center`}
+                className={`w-10 h-10 rounded-full ${colorOption.color} border-2 border-gray-300 hover:scale-110 transition-transform`}
                 title={colorOption.name}
-              >
-                {colorOption.label && (
-                  <span className="text-white text-xs font-bold">
-                    {colorOption.label}
-                  </span>
-                )}
-              </button>
+              />
             ))}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (selectedRouteForColor) {
+                  changeRouteColor(selectedRouteForColor, 'black');
+                }
+              }}
+              className="w-10 h-10 rounded-full bg-black border-2 border-gray-300 hover:scale-110 transition-transform"
+              title="black"
+            />
           </div>
         </div>
       )}
@@ -6908,6 +7066,11 @@ export default function Home() {
               clearTimeout(routeLongPressTimer);
               setRouteLongPressTimer(null);
             }
+            if (routeLineLongPressTimer) {
+              clearTimeout(routeLineLongPressTimer);
+              setRouteLineLongPressTimer(null);
+            }
+            setRouteLineLongPressOccurred(false);
           }}
         />
       )}

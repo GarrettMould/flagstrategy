@@ -185,14 +185,59 @@ export default function MyPlays() {
             // This ensures local plays are created and won't be overwritten
             initializeLocalLLMPlays();
             
-            // Load local-only plays and folders from localStorage (after initialization)
-            const localPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]')
-              .filter((p: SavedPlay & { isLocalOnly?: boolean }) => p.isLocalOnly || p.folderId === LOCAL_LLM_FOLDER_ID);
+            // Load all plays from localStorage (after initialization)
+            const allLocalPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+            
+            // Create a map of Firebase plays by ID for quick lookup
+            const firebasePlaysMap = new Map(firebasePlays.map((p: SavedPlay) => [p.id, p]));
+            
+            // Process local plays: use newer version if play exists in both places
+            const processedPlays: SavedPlay[] = [];
+            const processedPlayIds = new Set<string>();
+            
+            // First, add all Firebase plays (we'll replace with local if local is newer)
+            firebasePlays.forEach((firebasePlay: SavedPlay) => {
+              const localPlay = allLocalPlays.find((p: SavedPlay) => p.id === firebasePlay.id);
+              
+              if (localPlay) {
+                // Play exists in both - use the one with newer updatedAt, or local if no updatedAt
+                const firebaseUpdatedAt = firebasePlay.updatedAt || firebasePlay.createdAt || '';
+                const localUpdatedAt = localPlay.updatedAt || localPlay.createdAt || '';
+                
+                if (localUpdatedAt > firebaseUpdatedAt) {
+                  // Local version is newer (or Firebase has no timestamp) - use local
+                  processedPlays.push(localPlay);
+                } else {
+                  // Firebase version is newer or same - use Firebase
+                  processedPlays.push(firebasePlay);
+                }
+              } else {
+                // Only in Firebase - use Firebase version
+                processedPlays.push(firebasePlay);
+              }
+              
+              processedPlayIds.add(firebasePlay.id);
+            });
+            
+            // Add local plays that aren't in Firebase (newly saved or unsynced)
+            allLocalPlays.forEach((localPlay: SavedPlay) => {
+              if (!processedPlayIds.has(localPlay.id)) {
+                // Check if it's a local-only play (LLM) or just unsynced
+                const isLocalOnly = (localPlay as SavedPlay & { isLocalOnly?: boolean }).isLocalOnly || 
+                                   localPlay.folderId === LOCAL_LLM_FOLDER_ID;
+                
+                if (isLocalOnly || !firebasePlaysMap.has(localPlay.id)) {
+                  processedPlays.push(localPlay);
+                  processedPlayIds.add(localPlay.id);
+                }
+              }
+            });
+            
             const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]')
               .filter((f: Folder & { isLocalOnly?: boolean }) => f.isLocalOnly || f.id === LOCAL_LLM_FOLDER_ID);
             
-            // Merge: Firebase data + local-only data
-            const allPlays = [...firebasePlays, ...localPlays];
+            // Merge: Processed plays (Firebase + newer local versions) + local folders
+            const allPlays = processedPlays;
             const allFolders = [...firebaseFolders, ...localFolders];
             
             // Update state with merged data
@@ -260,6 +305,77 @@ export default function MyPlays() {
     loadData();
   }, [user, authLoading]);
 
+  // Refresh data when window gains focus (user navigates back to this page)
+  useEffect(() => {
+    const handleFocus = () => {
+      // Reload data when user returns to the page
+      if (user && !authLoading) {
+        const loadData = async () => {
+          try {
+            const userData = await loadUserData(user.uid);
+            
+            if (userData) {
+              const firebasePlays = userData.savedPlays || [];
+              const firebaseFolders = userData.folders || [];
+              
+              initializeLocalLLMPlays();
+              
+              const allLocalPlays = JSON.parse(localStorage.getItem('savedPlays') || '[]');
+              const firebasePlaysMap = new Map(firebasePlays.map((p: SavedPlay) => [p.id, p]));
+              
+              const processedPlays: SavedPlay[] = [];
+              const processedPlayIds = new Set<string>();
+              
+              firebasePlays.forEach((firebasePlay: SavedPlay) => {
+                const localPlay = allLocalPlays.find((p: SavedPlay) => p.id === firebasePlay.id);
+                
+                if (localPlay) {
+                  const firebaseUpdatedAt = firebasePlay.updatedAt || firebasePlay.createdAt || '';
+                  const localUpdatedAt = localPlay.updatedAt || localPlay.createdAt || '';
+                  
+                  if (localUpdatedAt > firebaseUpdatedAt) {
+                    processedPlays.push(localPlay);
+                  } else {
+                    processedPlays.push(firebasePlay);
+                  }
+                } else {
+                  processedPlays.push(firebasePlay);
+                }
+                
+                processedPlayIds.add(firebasePlay.id);
+              });
+              
+              allLocalPlays.forEach((localPlay: SavedPlay) => {
+                if (!processedPlayIds.has(localPlay.id)) {
+                  const isLocalOnly = (localPlay as SavedPlay & { isLocalOnly?: boolean }).isLocalOnly || 
+                                     localPlay.folderId === LOCAL_LLM_FOLDER_ID;
+                  
+                  if (isLocalOnly || !firebasePlaysMap.has(localPlay.id)) {
+                    processedPlays.push(localPlay);
+                    processedPlayIds.add(localPlay.id);
+                  }
+                }
+              });
+              
+              const localFolders = JSON.parse(localStorage.getItem('playFolders') || '[]')
+                .filter((f: Folder & { isLocalOnly?: boolean }) => f.isLocalOnly || f.id === LOCAL_LLM_FOLDER_ID);
+              
+              setSavedPlays(processedPlays);
+              setFolders([...firebaseFolders, ...localFolders]);
+            }
+          } catch (error) {
+            console.error('Error refreshing data on focus:', error);
+          }
+        };
+        
+        loadData();
+      }
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [user, authLoading]);
+
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -318,6 +434,15 @@ export default function MyPlays() {
       // "All Plays" folder shows all plays
       return savedPlays;
     }
+    
+    // Check if this is the Favorites folder
+    const favoritesFolder = folders.find(f => f.name === 'Favorites');
+    if (favoritesFolder && folderId === favoritesFolder.id) {
+      // Favorites folder shows all plays with isFavorite === true
+      return savedPlays.filter(play => play.isFavorite === true);
+    }
+    
+    // Regular folder shows plays with matching folderId
     return savedPlays.filter(play => play.folderId === folderId);
   };
 
@@ -496,6 +621,90 @@ export default function MyPlays() {
     setPlayToAddToFolder(playId);
     setShowAddToFolderModal(true);
     setMenuOpenForPlay(null);
+  };
+
+  const getOrCreateFavoritesFolder = async (): Promise<string> => {
+    // Check if Favorites folder exists
+    let favoritesFolder = folders.find(f => f.name === 'Favorites');
+    
+    if (!favoritesFolder) {
+      // Create Favorites folder
+      const newFolder: Folder = {
+        id: 'favorites_' + Date.now().toString(),
+        name: 'Favorites',
+        createdAt: new Date().toISOString(),
+        parentFolderId: null
+      };
+      
+      const updatedFolders = [...folders, newFolder];
+      setFolders(updatedFolders);
+      localStorage.setItem('playFolders', JSON.stringify(updatedFolders));
+      
+      // Sync to Firebase if user is logged in
+      if (user) {
+        try {
+          const existingData = await loadUserData(user.uid);
+          const userData: UserData = {
+            savedPlays: filterLocalOnlyData(existingData?.savedPlays || filterLocalOnlyData(savedPlays)),
+            folders: filterLocalOnlyData(updatedFolders),
+            updatedAt: new Date().toISOString()
+          };
+          await saveUserData(user.uid, userData);
+        } catch (error) {
+          console.error('Error syncing Favorites folder creation to Firebase:', error);
+        }
+      }
+      
+      return newFolder.id;
+    }
+    
+    return favoritesFolder.id;
+  };
+
+  const toggleFavorite = async (playId: string) => {
+    const play = savedPlays.find(p => p.id === playId);
+    if (!play) return;
+    
+    // Ensure Favorites folder exists (for display purposes)
+    await getOrCreateFavoritesFolder();
+    
+    // Toggle the isFavorite flag without changing the folderId
+    const isCurrentlyFavorited = play.isFavorite === true;
+    
+    const updatedPlays = savedPlays.map(p => 
+      p.id === playId ? { ...p, isFavorite: !isCurrentlyFavorited } : p
+    );
+    setSavedPlays(updatedPlays);
+    localStorage.setItem('savedPlays', JSON.stringify(updatedPlays));
+    
+    // Sync to Firebase if user is logged in
+    if (user) {
+      try {
+        const existingData = await loadUserData(user.uid);
+        let mergedPlays = updatedPlays;
+        
+        if (existingData && existingData.savedPlays.length > 0) {
+          const existingPlayIds = new Set(existingData.savedPlays.map((p: SavedPlay) => p.id));
+          const localPlayIds = new Set(updatedPlays.map((p: SavedPlay) => p.id));
+          const playsToKeep = existingData.savedPlays.filter((p: SavedPlay) => !localPlayIds.has(p.id));
+          mergedPlays = [...playsToKeep, ...updatedPlays];
+        }
+        
+        const userData: UserData = {
+          savedPlays: filterLocalOnlyData(mergedPlays),
+          folders: filterLocalOnlyData(folders),
+          updatedAt: new Date().toISOString()
+        };
+        
+        await saveUserData(user.uid, userData);
+      } catch (error) {
+        console.error('Error syncing favorite toggle to Firebase:', error);
+      }
+    }
+  };
+
+  const isPlayFavorited = (play: SavedPlay): boolean => {
+    return play.isFavorite === true;
   };
 
   const addPlayToFolder = async (playId: string, folderId: string | null) => {
@@ -2224,137 +2433,160 @@ export default function MyPlays() {
               )})}
 
               {/* Play Cards - Only show when inside a folder (not at root) */}
-              {currentFolderId !== null && filteredPlays.map((play) => (
-              <div
-                key={play.id}
-                className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200"
-              >
-                {/* Three Dots Menu Button */}
-                <div data-menu-container>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
-                    }}
-                    className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors z-10"
+              {currentFolderId !== null && filteredPlays.map((play) => {
+                const isFavorited = isPlayFavorited(play);
+                return (
+                  <div
+                    key={play.id}
+                    className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200"
                   >
-                    <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-                    </svg>
-                  </button>
+                    {/* Star Button - Top Left */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(play.id);
+                      }}
+                      className="absolute top-2 left-2 w-8 h-8 flex items-center justify-center rounded-full bg-white hover:bg-gray-50 transition-colors z-10 shadow-sm"
+                      title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      {isFavorited ? (
+                        <svg className="w-5 h-5 text-purple-400" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                        </svg>
+                      )}
+                    </button>
 
-                  {/* Dropdown Menu */}
-                  {menuOpenForPlay === play.id && (
-                    <div className="absolute top-10 right-2 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
+                    {/* Three Dots Menu Button */}
+                    <div data-menu-container>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          editPlay(play.id);
+                          setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
                         }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors z-10"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
                         </svg>
-                        Edit Play
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          downloadPlayAsJPG(play);
-                          setMenuOpenForPlay(null);
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Download Play
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openAddToFolderModal(play.id);
-                        }}
-                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                        </svg>
-                        Add Play to Folder
-                      </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                          openDeleteModal(play.id);
-                    }}
-                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
-                  >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        Delete Play
-                  </button>
-                  </div>
-                  )}
-                </div>
 
-                {/* Play Preview */}
-                <div className="w-full bg-green-100 relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
-                  {/* Field Lines */}
-                  <div className="absolute inset-0 opacity-20">
-                    {/* Yard Lines */}
-                    {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
-                      <div
-                        key={percent}
-                        className="absolute left-0 right-0 bg-white"
-                        style={{ top: `${percent}%`, height: '1px' }}
-                      />
-                    ))}
-                    {/* Sidelines */}
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-white"></div>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-white"></div>
-                  </div>
+                      {/* Dropdown Menu */}
+                      {menuOpenForPlay === play.id && (
+                        <div className="absolute top-10 right-2 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              editPlay(play.id);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            Edit Play
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadPlayAsJPG(play);
+                              setMenuOpenForPlay(null);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Play
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openAddToFolderModal(play.id);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                            Add Play to Folder
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteModal(play.id);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Delete Play
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Play Content */}
-                  {renderPlayPreview(play)}
-                </div>
+                    {/* Play Preview */}
+                    <div className="w-full bg-green-100 relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
+                      {/* Field Lines */}
+                      <div className="absolute inset-0 opacity-20">
+                        {/* Yard Lines */}
+                        {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
+                          <div
+                            key={percent}
+                            className="absolute left-0 right-0 bg-white"
+                            style={{ top: `${percent}%`, height: '1px' }}
+                          />
+                        ))}
+                        {/* Sidelines */}
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-white"></div>
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white"></div>
+                      </div>
 
-                {/* Play Name */}
-                <div className="p-3">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-gray-900 truncate flex-1">{play.name}</h3>
-                    {play.playNotes && (
-                      <div 
-                        className="relative"
-                        onMouseEnter={() => setNotesTooltipPlayId(play.id)}
-                        onMouseLeave={() => setNotesTooltipPlayId(null)}
-                      >
-                        <button
-                          onClick={() => setNotesTooltipPlayId(notesTooltipPlayId === play.id ? null : play.id)}
-                          className="text-gray-400 hover:text-gray-600 transition-colors"
-                        >
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M3 18h18v-2H3v2zM3 13h18v-2H3v2zM3 6v2h18V6H3z" />
-                          </svg>
-                        </button>
-                        {notesTooltipPlayId === play.id && (
-                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 max-w-[90vw] bg-white text-gray-900 text-xs rounded-lg p-3 shadow-xl z-[100] border border-gray-200">
-                            <div className="whitespace-pre-wrap">{play.playNotes}</div>
-                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 -bottom-1">
-                              <div className="border-4 border-transparent border-t-white"></div>
-                            </div>
+                      {/* Play Content */}
+                      {renderPlayPreview(play)}
+                    </div>
+
+                    {/* Play Name */}
+                    <div className="p-3">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-gray-900 truncate flex-1">{play.name}</h3>
+                        {play.playNotes && (
+                          <div 
+                            className="relative"
+                            onMouseEnter={() => setNotesTooltipPlayId(play.id)}
+                            onMouseLeave={() => setNotesTooltipPlayId(null)}
+                          >
+                            <button
+                              onClick={() => setNotesTooltipPlayId(notesTooltipPlayId === play.id ? null : play.id)}
+                              className="text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M3 18h18v-2H3v2zM3 13h18v-2H3v2zM3 6v2h18V6H3z" />
+                              </svg>
+                            </button>
+                            {notesTooltipPlayId === play.id && (
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 max-w-[90vw] bg-white text-gray-900 text-xs rounded-lg p-3 shadow-xl z-[100] border border-gray-200">
+                                <div className="whitespace-pre-wrap">{play.playNotes}</div>
+                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 -bottom-1">
+                                  <div className="border-4 border-transparent border-t-white"></div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
+                      {play.playbook && (
+                        <p className="text-xs text-gray-500 mt-1">{play.playbook}</p>
+                      )}
+                    </div>
                   </div>
-                  {play.playbook && (
-                    <p className="text-xs text-gray-500 mt-1">{play.playbook}</p>
-            )}
-          </div>
-              </div>
-              ))}
+                );
+              })}
             </div>
             </>
           ) : (

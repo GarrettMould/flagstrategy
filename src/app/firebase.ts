@@ -7,6 +7,7 @@ export interface SavedPlay {
   name: string;
   playbook?: string;
   folderId?: string;
+  isFavorite?: boolean;
   players: Array<{
     id: string;
     x: number;
