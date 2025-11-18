@@ -625,7 +625,7 @@ export default function MyPlays() {
 
   const getOrCreateFavoritesFolder = async (): Promise<string> => {
     // Check if Favorites folder exists
-    let favoritesFolder = folders.find(f => f.name === 'Favorites');
+    const favoritesFolder = folders.find(f => f.name === 'Favorites');
     
     if (!favoritesFolder) {
       // Create Favorites folder

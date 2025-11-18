@@ -3268,7 +3268,14 @@ export default function Home() {
           ...(selectedFolder ? { folderId: selectedFolder } : {}), // Only include if not empty
           players: players,
           routes: routes.map(route => {
-            const routeObj: any = {
+            const routeObj: {
+              id: string;
+              points: { x: number; y: number }[];
+              style: 'solid' | 'dashed';
+              lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
+              color?: string;
+              endpointType?: 'arrow' | 'dot' | 'none';
+            } = {
               id: route.id,
               points: route.points,
               style: route.style,
@@ -3321,7 +3328,14 @@ export default function Home() {
         ...(selectedFolder ? { folderId: selectedFolder } : {}), // Only include if not empty
         players: players,
         routes: routes.map(route => {
-          const routeObj: any = {
+          const routeObj: {
+            id: string;
+            points: { x: number; y: number }[];
+            style: 'solid' | 'dashed';
+            lineBreakType: 'rigid' | 'smooth' | 'none' | 'smooth-none';
+            color?: string;
+            endpointType?: 'arrow' | 'dot' | 'none';
+          } = {
             id: route.id,
             points: route.points,
             style: route.style,
