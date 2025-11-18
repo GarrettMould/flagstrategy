@@ -250,7 +250,7 @@ export default function MyPlays() {
             
             console.log('Loaded data from Firebase + local:', {
               firebasePlaysCount: firebasePlays.length,
-              localPlaysCount: localPlays.length,
+              localPlaysCount: allLocalPlays.length,
               firebaseFoldersCount: firebaseFolders.length,
               localFoldersCount: localFolders.length,
               totalPlays: allPlays.length,
