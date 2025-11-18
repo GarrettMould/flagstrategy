@@ -2425,10 +2425,10 @@ export default function MyPlays() {
               {currentFolderId !== null && filteredPlays.map((play) => {
                 const isFavorited = isPlayFavorited(play);
                 return (
-                  <div
-                    key={play.id}
-                    className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200"
-                  >
+              <div
+                key={play.id}
+                className="relative group bg-white border border-gray-200 rounded-lg overflow-visible shadow-sm hover:shadow-lg transition-all duration-200"
+              >
                     {/* Star Button - Top Left */}
                     <button
                       onClick={(e) => {
@@ -2449,131 +2449,131 @@ export default function MyPlays() {
                       )}
                     </button>
 
-                    {/* Three Dots Menu Button */}
-                    <div data-menu-container>
+                {/* Three Dots Menu Button */}
+                <div data-menu-container>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
+                    }}
+                        className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors z-10"
+                  >
+                    <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                    </svg>
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {menuOpenForPlay === play.id && (
+                    <div className="absolute top-10 right-2 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setMenuOpenForPlay(menuOpenForPlay === play.id ? null : play.id);
+                          editPlay(play.id);
                         }}
-                        className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors z-10"
-                      >
-                        <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-                        </svg>
-                      </button>
-
-                      {/* Dropdown Menu */}
-                      {menuOpenForPlay === play.id && (
-                        <div className="absolute top-10 right-2 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              editPlay(play.id);
-                            }}
                             className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                          >
+                      >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                             </svg>
-                            Edit Play
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              downloadPlayAsJPG(play);
-                              setMenuOpenForPlay(null);
-                            }}
-                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
+                        Edit Play
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadPlayAsJPG(play);
+                          setMenuOpenForPlay(null);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
                             Download Play
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openAddToFolderModal(play.id);
-                            }}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAddToFolderModal(play.id);
+                        }}
                             className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                          >
+                      >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                             </svg>
-                            Add Play to Folder
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDeleteModal(play.id);
-                            }}
+                        Add Play to Folder
+                      </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                          openDeleteModal(play.id);
+                    }}
                             className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
-                          >
+                  >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
-                            Delete Play
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                        Delete Play
+                  </button>
+                  </div>
+                  )}
+                </div>
 
-                    {/* Play Preview */}
-                    <div className="w-full bg-green-100 relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
-                      {/* Field Lines */}
-                      <div className="absolute inset-0 opacity-20">
-                        {/* Yard Lines */}
-                        {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
-                          <div
-                            key={percent}
-                            className="absolute left-0 right-0 bg-white"
-                            style={{ top: `${percent}%`, height: '1px' }}
-                          />
-                        ))}
-                        {/* Sidelines */}
-                        <div className="absolute top-0 left-0 right-0 h-1 bg-white"></div>
-                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white"></div>
-                      </div>
+                {/* Play Preview */}
+                <div className="w-full bg-green-100 relative overflow-hidden" style={{ height: '300px', aspectRatio: '4/3' }}>
+                  {/* Field Lines */}
+                  <div className="absolute inset-0 opacity-20">
+                    {/* Yard Lines */}
+                    {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((percent) => (
+                      <div
+                        key={percent}
+                        className="absolute left-0 right-0 bg-white"
+                        style={{ top: `${percent}%`, height: '1px' }}
+                      />
+                    ))}
+                    {/* Sidelines */}
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-white"></div>
+                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-white"></div>
+                  </div>
 
-                      {/* Play Content */}
-                      {renderPlayPreview(play)}
-                    </div>
+                  {/* Play Content */}
+                  {renderPlayPreview(play)}
+                </div>
 
-                    {/* Play Name */}
-                    <div className="p-3">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-gray-900 truncate flex-1">{play.name}</h3>
-                        {play.playNotes && (
-                          <div 
-                            className="relative"
-                            onMouseEnter={() => setNotesTooltipPlayId(play.id)}
-                            onMouseLeave={() => setNotesTooltipPlayId(null)}
-                          >
-                            <button
-                              onClick={() => setNotesTooltipPlayId(notesTooltipPlayId === play.id ? null : play.id)}
-                              className="text-gray-400 hover:text-gray-600 transition-colors"
-                            >
-                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M3 18h18v-2H3v2zM3 13h18v-2H3v2zM3 6v2h18V6H3z" />
-                              </svg>
-                            </button>
-                            {notesTooltipPlayId === play.id && (
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 max-w-[90vw] bg-white text-gray-900 text-xs rounded-lg p-3 shadow-xl z-[100] border border-gray-200">
-                                <div className="whitespace-pre-wrap">{play.playNotes}</div>
-                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 -bottom-1">
-                                  <div className="border-4 border-transparent border-t-white"></div>
-                                </div>
-                              </div>
-                            )}
+                {/* Play Name */}
+                <div className="p-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-gray-900 truncate flex-1">{play.name}</h3>
+                    {play.playNotes && (
+                      <div 
+                        className="relative"
+                        onMouseEnter={() => setNotesTooltipPlayId(play.id)}
+                        onMouseLeave={() => setNotesTooltipPlayId(null)}
+                      >
+                        <button
+                          onClick={() => setNotesTooltipPlayId(notesTooltipPlayId === play.id ? null : play.id)}
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M3 18h18v-2H3v2zM3 13h18v-2H3v2zM3 6v2h18V6H3z" />
+                          </svg>
+                        </button>
+                        {notesTooltipPlayId === play.id && (
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 max-w-[90vw] bg-white text-gray-900 text-xs rounded-lg p-3 shadow-xl z-[100] border border-gray-200">
+                            <div className="whitespace-pre-wrap">{play.playNotes}</div>
+                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 -bottom-1">
+                              <div className="border-4 border-transparent border-t-white"></div>
+                            </div>
                           </div>
                         )}
                       </div>
-                      {play.playbook && (
-                        <p className="text-xs text-gray-500 mt-1">{play.playbook}</p>
-                      )}
-                    </div>
+                    )}
                   </div>
+                  {play.playbook && (
+                    <p className="text-xs text-gray-500 mt-1">{play.playbook}</p>
+            )}
+          </div>
+              </div>
                 );
               })}
             </div>
